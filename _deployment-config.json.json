@@ -1,0 +1,220 @@
+{
+  "stage": "prod",
+  "rumAppMonitorId": "f344baad-4059-41fe-b0c6-c53ef386c5b9",
+  "rumAppRegion": "us-east-1",
+  "rumAppVersion": "1.0.0",
+  "rumGuestRoleArn": "arn:aws:iam::626635418596:role/StaticWebsiteStack-prod-u-CloudWatchRumproduseast1B-CRziLa0TjEuJ",
+  "rumIdentityPoolId": "us-east-1:aaea16dc-0388-4789-9ce1-016ec5f003ba",
+  "analyticsEmissionSourceUrl": "https://a0.awsstatic.com/s_code/js/3.0/awshome_s_code.js",
+  "contentMap": {
+    "howToSetupAWSAccount": "/content/2pNCheChVolMjKVsjWFNZQqi8MB/how-to-set-up-an-aws-account",
+    "OWASPtop10RisksForApplicationSecurity": "/content/2wCesCbqbOMKs3njdYPNVPDerKg/application-security-addressing-owasp-top-10-risks",
+    "buildingAiAgentsWithStrandsPart1": "/content/2xP1AQ52ofPdLawEbDI5EEUhmhH/building-ai-agents-with-strands-part-1-creating-your-first-agent",
+    "buildingAiAgentsWithStrandsPart2": "/content/2xP8NYlAQUN0feRpeq9xqhj0i7u/building-ai-agents-with-strands-part-2-tool-integration",
+    "buildingAiAgentsWithStrandsPart3": "/content/2xSxbxfYzWnaE7eBfvFsKQ62hcv/building-ai-agents-with-strands-part-3-mcp-integration",
+    "buildingAiAgentsWithStrandsPart4": "/content/2xT246v0TpKQhlPjCCBcROjKvtp/building-ai-agents-with-strands-part-4-alternative-model-providers",
+    "runningMcpBasedAgentsClientsServersOnAws": "/content/2v8AETAkyvPp9RVKC4YChncaEbs/running-mcp-based-agents-clients-servers-on-aws"
+  },
+  "heroesToFollow": [
+    {
+      "alias": "abebars",
+      "builderProfileId": "5b9ebb78-5cdc-49f5-87c5-a6606b362843"
+    },
+    {
+      "alias": "astuyve",
+      "builderProfileId": "060e2569-c73a-492f-a3de-de9448c60ecc"
+    },
+    {
+      "alias": "amyt",
+      "builderProfileId": "e8dd43aa-c9c2-42bf-a351-301f2c1f8be2"
+    },
+    {
+      "alias": "misskecupbung",
+      "builderProfileId": "a458e15c-2c01-4f08-8a8c-0a9c8af2418c"
+    },
+    {
+      "alias": "andersb",
+      "builderProfileId": "d3a612ad-8520-448c-b091-62e3f9987459"
+    },
+    {
+      "alias": "andrewbrown",
+      "builderProfileId": "fe328de5-574f-408f-af49-44715660abc2"
+    },
+    {
+      "alias": "ianuragkale",
+      "builderProfileId": "05868567-e75c-4f98-9b6c-e0cdf44fe87c"
+    },
+    {
+      "alias": "davebuildscloud",
+      "builderProfileId": "caccac28-c6e0-49fa-9b9c-2a938cbfa41f"
+    },
+    {
+      "alias": "kinimod",
+      "builderProfileId": "bc1e48ee-a60a-4fd1-b53c-8ccbedcf043f"
+    },
+    {
+      "alias": "emrahsamdan",
+      "builderProfileId": "8466860d-25da-4b6e-b031-883cf0118940"
+    },
+    {
+      "alias": "frapochetti",
+      "builderProfileId": "ec80f4c2-0dbb-4a1e-98dd-f606c75d546e"
+    },
+    {
+      "alias": "franckpachot",
+      "builderProfileId": "7cb249f7-5434-4c75-842b-1da072f1eb18"
+    },
+    {
+      "alias": "gerardokaztro",
+      "builderProfileId": "96c2bb8a-7402-401e-bcff-a236775d8e52"
+    },
+    {
+      "alias": "hsaenz",
+      "builderProfileId": "a0e4778d-14f4-4581-912a-55e904f1350a"
+    },
+    {
+      "alias": "hyunmin",
+      "builderProfileId": "c92f50d9-525c-4a3a-9a5f-1c69c7d47797"
+    },
+    {
+      "alias": "sinsky",
+      "builderProfileId": "30134733-c8aa-4dfa-855b-a47b29cbf5e1"
+    },
+    {
+      "alias": "jeremydaly",
+      "builderProfileId": "0720c248-8ac9-464a-a9fd-7881bc8a1b27"
+    },
+    {
+      "alias": "jimmydqv",
+      "builderProfileId": "3cafbd3b-00db-4122-93af-1da2f48be7a5"
+    },
+    {
+      "alias": "zachjonesnoel",
+      "builderProfileId": "cb27a662-8360-4710-aa88-499dffdfbc9d"
+    },
+    {
+      "alias": "keisukeusuda",
+      "builderProfileId": "89efc571-bfed-412d-a5ff-36ea671f4b9c"
+    },
+    {
+      "alias": "marumoto",
+      "builderProfileId": "3c6169d3-2ac7-4570-af97-162d418ec901"
+    },
+    {
+      "alias": "maxjp",
+      "builderProfileId": "e135c85f-e69f-481d-b0cd-921af96315f2"
+    },
+    {
+      "alias": "bien",
+      "builderProfileId": "3f57bfa4-e35d-4e33-8bb5-49bbc5d340d9"
+    },
+    {
+      "alias": "serverlessadvocate",
+      "builderProfileId": "12dda6d0-a47d-4135-b12f-70ebc95a223e"
+    },
+    {
+      "alias": "loige",
+      "builderProfileId": "67cdc1ed-8a12-4169-b75d-96c27c96ba9a"
+    },
+    {
+      "alias": "cloudgeek7",
+      "builderProfileId": "5d2f3edd-a437-431f-82ff-68d01e3b874a"
+    },
+    {
+      "alias": "mvandongen",
+      "builderProfileId": "865bd97b-8df6-48cb-9279-4c749e8cfd82"
+    },
+    {
+      "alias": "iselegant",
+      "builderProfileId": "a34a0f47-46b2-4cb2-8262-60f11df197f9"
+    },
+    {
+      "alias": "mnapoli",
+      "builderProfileId": "2f4163cc-8f95-4dcb-ad6c-c9f62f6eef64"
+    },
+    {
+      "alias": "miketheman",
+      "builderProfileId": "b3364de6-0ec1-4082-b991-6e20137ab51a"
+    },
+    {
+      "alias": "monica",
+      "builderProfileId": "83853189-14bf-4f72-8482-6de4f312b9db"
+    },
+    {
+      "alias": "niv",
+      "builderProfileId": "cc8716ff-0c61-4cf7-8841-c7c8c3547364"
+    },
+    {
+      "alias": "pmartin",
+      "builderProfileId": "49ff4dad-37ae-4fc5-848f-8e81ba871143"
+    },
+    {
+      "alias": "hnp",
+      "builderProfileId": "f7aa9d6e-5608-45d5-a0e0-5dad1434f770"
+    },
+    {
+      "alias": "jamby",
+      "builderProfileId": "1f8c845e-b727-4144-bfb4-2bf2752eca70"
+    },
+    {
+      "alias": "richardfan",
+      "builderProfileId": "81d32861-bac9-409b-9a46-c375e97a035b"
+    },
+    {
+      "alias": "rosius",
+      "builderProfileId": "e15f5793-40cf-4fb6-86cf-69ca86162747"
+    },
+    {
+      "alias": "sabihaali",
+      "builderProfileId": "ab4ea3cc-d86e-4a64-801d-d141864ff860"
+    },
+    {
+      "alias": "sanguk",
+      "builderProfileId": "3866942c-8cb6-4f4d-8d68-e95611c57a71"
+    },
+    {
+      "alias": "sbstjn",
+      "builderProfileId": "6ce5d371-e0a2-47d1-b9e6-9a23e4e10fdd"
+    },
+    {
+      "alias": "shaoyi",
+      "builderProfileId": "be697d12-3ef6-4a3e-b8b0-a8944670f325"
+    },
+    {
+      "alias": "shingo",
+      "builderProfileId": "3684220b-57dd-4747-8760-704dc6eaaba5"
+    },
+    {
+      "alias": "ssennettau",
+      "builderProfileId": "0fae6e5f-1307-40c6-9fbd-c61b75d860ec"
+    },
+    {
+      "alias": "taeseongpark",
+      "builderProfileId": "7a83e8ce-bbd0-422a-8d6b-4f6458641546"
+    },
+    {
+      "alias": "tlakomy",
+      "builderProfileId": "47840ccd-31c7-4537-bd03-d055f9f9c512"
+    },
+    {
+      "alias": "vkazulkin",
+      "builderProfileId": "0bc65782-2e42-4203-bbfb-98acdc3f2cf3"
+    },
+    {
+      "alias": "vishala",
+      "builderProfileId": "14059f93-7294-4c85-b2eb-e7b133234635"
+    },
+    {
+      "alias": "vivekraja",
+      "builderProfileId": "dae45d88-e0b3-4d55-9d91-c17c6cbf492b"
+    },
+    {
+      "alias": "wojbrowski",
+      "builderProfileId": "6e1f1279-a343-49c8-9c21-578e3121b60c"
+    },
+    {
+      "alias": "dayjournal",
+      "builderProfileId": "493be2fb-d593-4205-8372-78187545d8ef"
+    }
+  ]
+}

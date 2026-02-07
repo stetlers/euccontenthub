@@ -1,0 +1,13 @@
+{
+  "domain": "awseuccontent.com",
+  "www_domain": "www.awseuccontent.com",
+  "cloudfront_id": "E20CC1TSSWTCWN",
+  "cloudfront_domain": "d3ikgzuwgly7o2.cloudfront.net",
+  "certificate_arn": "arn:aws:acm:us-east-1:031421429609:certificate/51d900fe-f8a5-41af-9b1a-dcde08e8a1f6",
+  "hosted_zone_id": "Z031807617CDHEIWB58KJ",
+  "www_removed": true,
+  "https_only": true,
+  "www_redirect_enabled": true,
+  "www_cloudfront_id": "E27OSCCKWGTRBX",
+  "www_s3_bucket": "www.awseuccontent.com"
+}

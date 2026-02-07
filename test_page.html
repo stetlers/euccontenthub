@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Testing API Connection</h1>
+    <div id="status">Loading...</div>
+    <div id="result"></div>
+    
+    <script>
+        const API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod';
+        
+        async function testAPI() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                statusDiv.textContent = 'Fetching posts...';
+                const response = await fetch(`${API_ENDPOINT}/posts`);
+                
+                statusDiv.textContent = `Status: ${response.status}`;
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <h2>Success!</h2>
+                    <p>Got ${data.posts.length} posts</p>
+                    <p>First post: ${data.posts[0].title}</p>
+                `;
+            } catch (err) {
+                statusDiv.textContent = 'Error!';
+                resultDiv.innerHTML = `<pre style="color: red;">${err.message}\n${err.stack}</pre>`;
+            }
+        }
+        
+        testAPI();
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "user_pool_id": "us-east-1_MOvNrTnua",
+  "app_client_id": "3pv5jf235vj14gu148b9vjt3od",
+  "domain": "euc-content-hub.auth.us-east-1.amazoncognito.com",
+  "domain_prefix": "euc-content-hub",
+  "region": "us-east-1",
+  "google_configured": true,
+  "login_url": "https://euc-content-hub.auth.us-east-1.amazoncognito.com/login?client_id=3pv5jf235vj14gu148b9vjt3od&response_type=code&scope=email+openid+profile&redirect_uri=https://awseuccontent.com/callback"
+}

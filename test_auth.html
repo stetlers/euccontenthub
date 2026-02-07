@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Google Sign-In</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #4285f4;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background: #357ae8;
+        }
+        .info {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 Test Google Authentication</h1>
+    
+    <div class="info">
+        <h3>Cognito Configuration:</h3>
+        <p><strong>User Pool:</strong> us-east-1_MOvNrTnua</p>
+        <p><strong>App Client:</strong> 3pv5jf235vj14gu148b9vjt3od</p>
+        <p><strong>Domain:</strong> euc-content-hub.auth.us-east-1.amazoncognito.com</p>
+    </div>
+    
+    <h2>Step 1: Sign In with Google</h2>
+    <a href="https://euc-content-hub.auth.us-east-1.amazoncognito.com/login?client_id=3pv5jf235vj14gu148b9vjt3od&response_type=code&scope=email+openid+profile&redirect_uri=https://awseuccontent.com/callback" class="btn">
+        Sign in with Google
+    </a>
+    
+    <h2>Step 2: Check URL After Redirect</h2>
+    <p>After signing in, you'll be redirected back with a code in the URL:</p>
+    <pre>https://awseuccontent.com/callback?code=XXXXX</pre>
+    
+    <h2>Current URL Parameters:</h2>
+    <pre id="urlParams">No parameters yet</pre>
+    
+    <script>
+        // Display URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const paramsObj = {};
+        for (const [key, value] of params) {
+            paramsObj[key] = value;
+        }
+        
+        if (Object.keys(paramsObj).length > 0) {
+            document.getElementById('urlParams').textContent = JSON.stringify(paramsObj, null, 2);
+            
+            // If we have a code, show success
+            if (paramsObj.code) {
+                const successDiv = document.createElement('div');
+                successDiv.style.cssText = 'background: #d4edda; color: #155724; padding: 15px; border-radius: 4px; margin: 20px 0;';
+                successDiv.innerHTML = '<h3>✓ Authentication Successful!</h3><p>Authorization code received. Next step: Exchange this code for tokens.</p>';
+                document.body.insertBefore(successDiv, document.getElementById('urlParams').parentElement);
+            }
+        } else {
+            document.getElementById('urlParams').textContent = 'No parameters in URL';
+        }
+    </script>
+</body>
+</html>
