@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EUC Content Hub</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="chat-widget.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>EUC Content Hub</h1>
+                    <p class="subtitle">Discover and explore End User Computing articles, blogs, and technical content</p>
+                </div>
+                <div class="header-right">
+                    <div id="authContainer"></div>
+                    <button id="proposeArticleBtn" class="btn-propose-article" title="Can't find what you're looking for? Propose a community article!">
+                        <span class="propose-icon">✍️</span>
+                        <span class="propose-text">Propose Article</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Analytics Charts -->
+        <div class="analytics-section">
+            <div class="chart-container">
+                <h3 class="chart-title">🏆 Community Leaderboard</h3>
+                <canvas id="leaderboardChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">📅 Posts Added (Last 30 Days)</h3>
+                <canvas id="recentBlogsChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">❤️ Top 6 Most Loved Posts</h3>
+                <canvas id="topLovedChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">🔥 Top 6 Posts by Votes</h3>
+                <canvas id="topVotesChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">💬 Top 6 Posts by Comments</h3>
+                <canvas id="topCommentsChart"></canvas>
+            </div>
+        </div>
+
+        <div class="search-section">
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search by title, author, or tags..."
+                autocomplete="off"
+            >
+            <div class="filters">
+                <div class="filter-info">
+                    <span id="filterLabel">Showing: All Posts</span>
+                    <span id="filteredCount" class="filtered-count">350</span>
+                </div>
+                <select id="sortBy">
+                    <option value="date-desc">Newest First</option>
+                    <option value="date-asc">Oldest First</option>
+                    <option value="title-asc">Title A-Z</option>
+                    <option value="title-desc">Title Z-A</option>
+                    <option value="votes-desc">Most Votes</option>
+                </select>
+                <button id="crawlBtn" class="btn-crawl" title="Crawl AWS blogs for new posts">
+                    <span class="crawl-icon">🔄</span>
+                    <span class="crawl-text">Crawl for New Posts</span>
+                </button>
+                <button id="refreshBtn" class="btn-secondary">Reload Data</button>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card" data-filter="all" data-tooltip="Click to show all posts">
+                <span class="stat-number" id="totalPosts">-</span>
+                <span class="stat-label">Total Posts</span>
+            </div>
+            <div class="stat-card" data-filter="my-bookmarks" data-tooltip="Click to show your bookmarked posts" style="display: none;">
+                <span class="stat-number" id="myBookmarksCount">-</span>
+                <span class="stat-label">⭐ My Bookmarks</span>
+            </div>
+            <div class="stat-card" data-filter="most-loved" data-tooltip="Click to show most loved posts">
+                <span class="stat-number" id="mostLovedCount">-</span>
+                <span class="stat-label">Most Loved</span>
+            </div>
+            <div class="stat-card" data-filter="needs-review" data-tooltip="Click to show posts with no votes">
+                <span class="stat-number" id="needsReviewCount">-</span>
+                <span class="stat-label">Needs Review</span>
+            </div>
+            <div class="stat-card" data-filter="needs-update" data-tooltip="Click to show posts voted for update">
+                <span class="stat-number" id="needsUpdateCount">-</span>
+                <span class="stat-label">Needs Update</span>
+            </div>
+            <div class="stat-card" data-filter="remove-post" data-tooltip="Click to show posts voted for removal">
+                <span class="stat-number" id="removePostCount">-</span>
+                <span class="stat-label">Remove Post</span>
+            </div>
+            <div class="stat-card" data-filter="most-voted" data-tooltip="Click to show all posts with votes">
+                <span class="stat-number" id="mostVotedCount">-</span>
+                <span class="stat-label">Any Votes</span>
+            </div>
+            <div class="stat-card" data-filter="resolved" data-tooltip="Click to show resolved posts">
+                <span class="stat-number" id="resolvedCount">-</span>
+                <span class="stat-label">Resolved</span>
+            </div>
+        </div>
+
+        <!-- Label Filters -->
+        <div class="label-filters-section">
+            <div id="labelFilters" class="label-filters"></div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading blog posts...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <p>Error loading blog posts. Please try again.</p>
+        </div>
+
+        <div id="postsContainer" class="posts-grid"></div>
+    </div>
+
+    <!-- Comments Modal -->
+    <div id="commentsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>💬 Comments</h2>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalPostTitle" class="modal-post-title"></div>
+                <div id="commentsContainer" class="comments-container">
+                    <div class="loading-comments">
+                        <div class="spinner"></div>
+                        <p>Loading comments...</p>
+                    </div>
+                </div>
+                <div class="comment-form">
+                    <textarea 
+                        id="commentText" 
+                        placeholder="Add your feedback or context about this post..."
+                        rows="4"
+                        maxlength="1000"
+                    ></textarea>
+                    <div class="comment-form-footer">
+                        <span id="charCount" class="char-count">0 / 1000</span>
+                        <button id="submitComment" class="btn-submit-comment">Post Comment</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Article Proposal Modal -->
+    <div id="proposalModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>✍️ Propose a Community Article</h2>
+                <button class="modal-close" id="closeProposalModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="proposal-intro">Can't find the content you're looking for? Help the community by proposing an article! Our AI will help refine your idea into a structured proposal.</p>
+                
+                <div id="proposalForm" class="proposal-form">
+                    <div class="form-group">
+                        <label for="proposalInput">What would you like to write about?</label>
+                        <textarea 
+                            id="proposalInput" 
+                            placeholder="Example: I want to write about how to set up Amazon WorkSpaces with multi-factor authentication for enhanced security..."
+                            rows="6"
+                            maxlength="1000"
+                        ></textarea>
+                        <span id="proposalCharCount" class="char-count">0 / 1000</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="proposalCategory">Preferred Category (Optional)</label>
+                        <select id="proposalCategory">
+                            <option value="">Let AI suggest the best category</option>
+                            <option value="Announcement">Announcement</option>
+                            <option value="Best Practices">Best Practices</option>
+                            <option value="Curation">Curation</option>
+                            <option value="Customer Story">Customer Story</option>
+                            <option value="Technical How-To">Technical How-To</option>
+                            <option value="Thought Leadership">Thought Leadership</option>
+                        </select>
+                        <small>Your AWS BuilderID will be associated with this proposal</small>
+                    </div>
+                    
+                    <button id="submitProposal" class="btn-submit-proposal">
+                        <span class="btn-text">Generate Proposal</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner-small"></span> Generating...
+                        </span>
+                    </button>
+                </div>
+                
+                <div id="proposalResult" class="proposal-result" style="display: none;">
+                    <div class="result-success">
+                        <h3>🎉 Your Article Proposal</h3>
+                        <p class="success-message">Great idea! Here's your refined article proposal:</p>
+                    </div>
+                    
+                    <div class="proposal-details">
+                        <div class="detail-section">
+                            <h4>📝 Title</h4>
+                            <p id="resultTitle" class="result-title"></p>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>🏷️ Category</h4>
+                            <p id="resultCategory" class="result-category"></p>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>📄 Summary</h4>
+                            <p id="resultSummary"></p>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>📋 Suggested Outline</h4>
+                            <ol id="resultOutline" class="result-outline"></ol>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>🔑 Key Topics</h4>
+                            <div id="resultTopics" class="result-topics"></div>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>👥 Target Audience</h4>
+                            <p id="resultAudience"></p>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>📏 Estimated Length</h4>
+                            <p id="resultLength"></p>
+                        </div>
+                        
+                        <div class="detail-section">
+                            <h4>💡 Writing Tips</h4>
+                            <p id="resultTips"></p>
+                        </div>
+                    </div>
+                    
+                    <div class="proposal-actions">
+                        <button id="newProposal" class="btn-secondary">Create Another Proposal</button>
+                        <button id="copyProposal" class="btn-primary">📋 Copy to Clipboard</button>
+                    </div>
+                    
+                    <p class="proposal-note">
+                        <strong>Next Steps:</strong> Use this proposal as a guide to write your article. 
+                        You can submit it to Builder.AWS or share it with the EUC community!
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Privacy Policy Modal -->
+    <div id="privacyModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Privacy Policy</h2>
+                <button class="modal-close" id="closePrivacyModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <p style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9900; margin-bottom: 20px;">
+                    <strong>TL;DR:</strong> We collect minimal information to provide authentication and personalization. We don't sell your data or use it for advertising.
+                </p>
+
+                <h3 style="margin-top: 20px;">Information We Collect</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Email and name from your sign-in provider (Google, Facebook, etc.)</li>
+                    <li>Profile info you provide (display name, bio, Credly URL, Builder.AWS ID)</li>
+                    <li>Your activity: votes, comments, loves, and bookmarks</li>
+                    <li>Usage data stored locally in your browser</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">How We Use Your Information</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Authenticate your identity and maintain your account</li>
+                    <li>Display your profile and activity</li>
+                    <li>Enable community features (voting, commenting, bookmarking)</li>
+                    <li>Improve our service and user experience</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">Data Storage & Security</h3>
+                <p>Your data is stored securely in AWS services (Cognito and DynamoDB) in the US East region with industry-standard security measures.</p>
+
+                <h3 style="margin-top: 20px;">Third-Party Services</h3>
+                <p>We use authentication providers (Google, Facebook), AWS services (Cognito, DynamoDB, CloudFront), and Amazon Bedrock for AI features. These services have their own privacy policies.</p>
+
+                <h3 style="margin-top: 20px;">Your Rights</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Access, update, or delete your personal information</li>
+                    <li>Export your data</li>
+                    <li>Opt out of certain data collection</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">Data Sharing</h3>
+                <p>We do not sell, rent, or share your personal information with third parties for marketing. Your activity is visible to other users as part of community features.</p>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9rem;">
+                    <strong>Last Updated:</strong> February 6, 2026
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Terms of Service Modal -->
+    <div id="termsModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Terms of Service</h2>
+                <button class="modal-close" id="closeTermsModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <p style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9900; margin-bottom: 20px;">
+                    <strong>TL;DR:</strong> Be respectful, don't abuse the service, and understand this is a community platform for sharing EUC content.
+                </p>
+
+                <h3 style="margin-top: 20px;">Acceptance of Terms</h3>
+                <p>By accessing and using EUC Content Hub, you agree to these Terms of Service. If you don't agree, please don't use the service.</p>
+
+                <h3 style="margin-top: 20px;">Service Description</h3>
+                <p>EUC Content Hub is a community platform for discovering, sharing, and discussing End User Computing content from AWS blogs and Builder.AWS. The service is provided "as is" without warranties.</p>
+
+                <h3 style="margin-top: 20px;">User Accounts</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>You must provide accurate information when creating an account</li>
+                    <li>You're responsible for maintaining account security</li>
+                    <li>One account per person</li>
+                    <li>You must be 13 years or older to use this service</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">Acceptable Use</h3>
+                <p><strong>You agree NOT to:</strong></p>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Post spam, harassment, or abusive content</li>
+                    <li>Impersonate others or provide false information</li>
+                    <li>Attempt to hack, disrupt, or abuse the service</li>
+                    <li>Use automated tools to scrape or abuse the platform</li>
+                    <li>Violate any applicable laws or regulations</li>
+                    <li>Post content that infringes on intellectual property rights</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">User Content</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>You retain ownership of content you post (comments, profile info)</li>
+                    <li>You grant us a license to display and distribute your content on the platform</li>
+                    <li>We may remove content that violates these terms</li>
+                    <li>You're responsible for your content and activity</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">Content Sources</h3>
+                <p>Content is aggregated from public AWS blogs and Builder.AWS. We don't claim ownership of this content. All rights belong to their respective owners (Amazon Web Services, Inc.).</p>
+
+                <h3 style="margin-top: 20px;">Termination</h3>
+                <p>We reserve the right to suspend or terminate accounts that violate these terms. You can delete your account at any time through the data deletion page.</p>
+
+                <h3 style="margin-top: 20px;">Disclaimer</h3>
+                <p>This service is not affiliated with, endorsed by, or sponsored by Amazon Web Services, Inc. All AWS trademarks are property of Amazon.com, Inc. or its affiliates.</p>
+
+                <h3 style="margin-top: 20px;">Limitation of Liability</h3>
+                <p>We provide this service "as is" without warranties. We're not liable for any damages arising from your use of the service.</p>
+
+                <h3 style="margin-top: 20px;">Changes to Terms</h3>
+                <p>We may update these terms. Continued use after changes constitutes acceptance of the new terms.</p>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9rem;">
+                    <strong>Last Updated:</strong> February 7, 2026
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Deletion Modal -->
+    <div id="dataDeletionModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Delete Your Data</h2>
+                <button class="modal-close" id="closeDataDeletionModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <p style="background: #ffebee; padding: 15px; border-left: 4px solid #f44336; margin-bottom: 20px;">
+                    <strong>⚠️ Important:</strong> Deleting your data is permanent and cannot be undone.
+                </p>
+
+                <h3 style="margin-top: 20px;">What Gets Deleted</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Your user profile (display name, bio, Credly URL, Builder.AWS ID)</li>
+                    <li>All your votes on posts</li>
+                    <li>All your comments</li>
+                    <li>All your loves (favorites)</li>
+                    <li>All your bookmarks</li>
+                    <li>Your authentication data from AWS Cognito</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">What Doesn't Get Deleted</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Posts from AWS blogs and Builder.AWS (these are public content)</li>
+                    <li>Aggregated, anonymized analytics data</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">How to Delete Your Data</h3>
+                <p><strong>Option 1: Self-Service (Recommended)</strong></p>
+                <ol style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>Sign in to your account</li>
+                    <li>Go to your profile (click your name in the top right)</li>
+                    <li>Click the "Delete Account" button at the bottom of your profile</li>
+                    <li>Confirm the deletion</li>
+                </ol>
+
+                <p><strong>Option 2: Email Request</strong></p>
+                <p style="margin-left: 20px; margin-bottom: 15px;">
+                    If you can't access your account, email us at: <strong>stetlers@gmail.com</strong><br>
+                    Include: Your email address and display name used on the platform<br>
+                    We'll process your request within 30 days.
+                </p>
+
+                <h3 style="margin-top: 20px;">Timeline</h3>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li><strong>Immediate:</strong> Your profile and activity become inaccessible</li>
+                    <li><strong>Within 24 hours:</strong> Data removed from active databases</li>
+                    <li><strong>Within 30 days:</strong> Data removed from backups</li>
+                </ul>
+
+                <h3 style="margin-top: 20px;">After Deletion</h3>
+                <p>You can create a new account at any time, but your previous data cannot be recovered.</p>
+
+                <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin-top: 20px;">
+                    <p><strong>💡 Alternative:</strong> If you just want to take a break, you can simply sign out. Your data will remain but you won't receive any notifications or communications.</p>
+                </div>
+
+                <p style="margin-top: 20px; color: #666; font-size: 0.9rem;">
+                    <strong>Last Updated:</strong> February 7, 2026
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer style="background: #232f3e; color: white; padding: 30px 20px; margin-top: 60px; text-align: center;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <p style="margin-bottom: 15px; font-size: 0.9rem;">
+                EUC Content Hub - Discover and explore End User Computing content
+            </p>
+            <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 15px;">
+                <a href="#" id="privacyLink" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Privacy Policy</a>
+                <span style="color: #666;">|</span>
+                <a href="#" id="termsLink" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Terms of Service</a>
+                <span style="color: #666;">|</span>
+                <a href="#" id="dataDeletionLink" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Delete My Data</a>
+                <span style="color: #666;">|</span>
+                <a href="https://github.com/stetlers/euccontenthub" target="_blank" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">GitHub</a>
+                <span style="color: #666;">|</span>
+                <a href="https://builder.aws.com/learn/topics/end-user-computing" target="_blank" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Builder.AWS EUC</a>
+            </div>
+            <p style="color: #999; font-size: 0.8rem;">
+                © 2026 EUC Content Hub. Not affiliated with Amazon Web Services.
+            </p>
+        </div>
+    </footer>
+
+    <script src="auth.js"></script>
+    <script src="app.js"></script>
+    <script src="profile.js"></script>
+    <script src="chat-widget.js"></script>
+</body>
+</html>

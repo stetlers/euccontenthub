@@ -1,0 +1,30 @@
+# Deployment artifacts
+*.zip
+
+# Sensitive configuration files with ARNs
+staging-cloudfront-config.json
+production-cf-config.json
+certificate_arn.txt
+cognito_config.json
+domain_config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS
+.aws/

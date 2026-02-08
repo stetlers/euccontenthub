@@ -1,0 +1,17 @@
+{
+  "Changes": [
+    {
+      "Action": "CREATE",
+      "ResourceRecordSet": {
+        "Name": "_081b8d629708dae0e4b03d0aafd4d0c5.staging.awseuccontent.com.",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [
+          {
+            "Value": "_768d01d2a74c3cca2a7abcc2a372b526.jkddzztszm.acm-validations.aws."
+          }
+        ]
+      }
+    }
+  ]
+}
