@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:031421429609:table/aws-blog-posts",
+        "arn:aws:dynamodb:us-east-1:031421429609:table/aws-blog-posts-staging"
+      ],
+      "Effect": "Allow"
+    }
+  ]
+}
