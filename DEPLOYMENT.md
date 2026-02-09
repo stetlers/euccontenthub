@@ -506,6 +506,9 @@ Track major deployments here:
 
 | Date | Type | Environment | Changes | Result |
 |------|------|-------------|---------|--------|
+| 2026-02-09 | Lambda | Production | Builder.AWS crawler change detection fix (Issue #20) | ✅ Success |
+| 2026-02-09 | Lambda | Staging | Builder.AWS crawler change detection fix (Issue #20) | ✅ Success |
+| 2026-02-09 | IAM | Both | Updated crawler IAM policies for staging access | ✅ Success |
 | 2026-02-09 | Frontend | Staging | Tested deployment script | ✅ Success |
 | 2026-02-08 | Frontend | Staging | GitHub footer link fix | ✅ Success |
 | 2026-02-08 | Frontend | Production | GitHub footer link fix | ✅ Success |

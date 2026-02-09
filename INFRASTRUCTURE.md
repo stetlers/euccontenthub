@@ -13,35 +13,58 @@ Complete guide for setting up the AWS infrastructure for EUC Content Hub from sc
 
 ## Architecture Overview
 
+### Blue-Green Deployment Architecture
+
+The platform uses separate staging and production environments for safe deployments:
+
 ```
-User Browser
-     │
-     ▼
-CloudFront CDN (E27OSCCKWGTRB)
-     │
-     ▼
-S3 Static Website (www.awseuccontent.com)
-     │
-     ▼
-API Gateway (xox05733ce) ──────► Lambda: API Handler
-     │                                │
-     │                                ├──► DynamoDB: aws-blog-posts
-     │                                └──► DynamoDB: euc-user-profiles
-     │
-     ├──► Lambda: AWS Blog Crawler ──► DynamoDB
-     ├──► ECS/Fargate: Builder Crawler ──► DynamoDB
-     ├──► Lambda: Summary Generator ──► Bedrock (Claude Haiku)
-     ├──► Lambda: Classifier ──► Bedrock (Claude Haiku)
-     └──► Lambda: Chat Assistant ──► Bedrock (Claude Sonnet)
-          
-Cognito User Pool ──► Google OAuth
+┌─────────────────────────────────────────────────────────────┐
+│                    STAGING ENVIRONMENT                       │
+│  staging.awseuccontent.com                                  │
+│                                                              │
+│  CloudFront (E1IB9VDMV64CQA)                               │
+│       │                                                      │
+│       ▼                                                      │
+│  S3: aws-blog-viewer-staging-031421429609                  │
+│       │                                                      │
+│       ▼                                                      │
+│  API Gateway: /staging                                      │
+│       │                                                      │
+│       ├──► Lambda ($LATEST versions)                        │
+│       ├──► DynamoDB: aws-blog-posts-staging                │
+│       └──► DynamoDB: euc-user-profiles-staging             │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                   PRODUCTION ENVIRONMENT                     │
+│  awseuccontent.com                                          │
+│                                                              │
+│  CloudFront (E20CC1TSSWTCWN)                               │
+│       │                                                      │
+│       ▼                                                      │
+│  S3: aws-blog-viewer-031421429609                          │
+│       │                                                      │
+│       ▼                                                      │
+│  API Gateway: /prod                                         │
+│       │                                                      │
+│       ├──► Lambda (versioned aliases)                       │
+│       ├──► DynamoDB: aws-blog-posts                        │
+│       └──► DynamoDB: euc-user-profiles                     │
+└─────────────────────────────────────────────────────────────┘
+
+Shared Services:
+├── Cognito User Pool (authentication)
+├── Bedrock (AI models)
+└── ECS/Fargate (Builder.AWS crawler)
 ```
 
 ## Step-by-Step Setup
 
 ### 1. DynamoDB Tables
 
-#### Table 1: aws-blog-posts
+#### Production Tables
+
+**Table 1: aws-blog-posts**
 
 ```bash
 aws dynamodb create-table \
@@ -54,17 +77,7 @@ aws dynamodb create-table \
     --region us-east-1
 ```
 
-**Attributes** (added dynamically):
-- `post_id` (String, Primary Key)
-- `url`, `title`, `authors`, `date_published`, `tags`, `content`
-- `summary`, `label`, `label_confidence`
-- `source` (aws.amazon.com or builder.aws.com)
-- `love_votes`, `love_voters[]`
-- `needs_update_votes`, `needs_update_voters[]`
-- `remove_post_votes`, `remove_post_voters[]`
-- `comments[]`, `comment_count`
-
-#### Table 2: euc-user-profiles
+**Table 2: euc-user-profiles**
 
 ```bash
 aws dynamodb create-table \
@@ -77,27 +90,70 @@ aws dynamodb create-table \
     --region us-east-1
 ```
 
-**Attributes**:
-- `user_id` (String, Primary Key - Cognito sub)
-- `email`, `display_name`, `bio`
-- `credly_url`, `builder_id`
-- `bookmarks[]`
-- `created_at`, `updated_at`
+#### Staging Tables
 
-### 2. S3 Bucket for Frontend
+**Table 3: aws-blog-posts-staging**
+
+```bash
+aws dynamodb create-table \
+    --table-name aws-blog-posts-staging \
+    --attribute-definitions \
+        AttributeName=post_id,AttributeType=S \
+    --key-schema \
+        AttributeName=post_id,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --region us-east-1
+```
+
+**Table 4: euc-user-profiles-staging**
+
+```bash
+aws dynamodb create-table \
+    --table-name euc-user-profiles-staging \
+    --attribute-definitions \
+        AttributeName=user_id,AttributeType=S \
+    --key-schema \
+        AttributeName=user_id,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --region us-east-1
+```
+
+**Table Attributes** (added dynamically):
+- `post_id` (String, Primary Key)
+- `url`, `title`, `authors`, `date_published`, `date_updated`, `tags`, `content`
+- `summary`, `label`, `label_confidence`
+- `source` (aws.amazon.com or builder.aws.com)
+- `love_votes`, `love_voters[]`
+- `needs_update_votes`, `needs_update_voters[]`
+- `remove_post_votes`, `remove_post_voters[]`
+- `comments[]`, `comment_count`
+
+### 2. S3 Buckets for Frontend
+
+#### Production Bucket
 
 **CRITICAL - Bucket Configuration**:
 
-There are TWO S3 buckets - only ONE is used:
+There are TWO S3 buckets - only ONE is used for production:
 - ✅ **CORRECT**: `aws-blog-viewer-031421429609` (serves awseuccontent.com)
 - ❌ **WRONG**: `www.awseuccontent.com` (exists but NOT configured)
 
-**Always deploy to**: `aws-blog-viewer-031421429609`
+**Always deploy production to**: `aws-blog-viewer-031421429609`
 
 ```bash
 # The correct bucket already exists in your account
 # Verify it exists
 aws s3 ls s3://aws-blog-viewer-031421429609
+```
+
+#### Staging Bucket
+
+**Staging Bucket**: `aws-blog-viewer-staging-031421429609` (serves staging.awseuccontent.com)
+
+```bash
+# Verify staging bucket exists
+aws s3 ls s3://aws-blog-viewer-staging-031421429609
+```
 
 # Enable static website hosting (if not already enabled)
 aws s3 website s3://aws-blog-viewer-031421429609 \

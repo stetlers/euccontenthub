@@ -2,7 +2,8 @@
 
 A serverless AWS blog aggregator and community platform for End User Computing (EUC) content.
 
-**Live Site**: https://awseuccontent.com
+**Production Site**: https://awseuccontent.com  
+**Staging Site**: https://staging.awseuccontent.com
 
 ## Overview
 
@@ -51,6 +52,36 @@ EUC Content Hub aggregates AWS blog posts from multiple sources, generates AI su
 
 ## Architecture
 
+### Blue-Green Deployment Strategy
+
+The platform uses a blue-green deployment strategy with separate staging and production environments:
+
+**Staging Environment**:
+- **Purpose**: Test changes before production deployment
+- **Site**: https://staging.awseuccontent.com
+- **S3 Bucket**: `aws-blog-viewer-staging-031421429609`
+- **CloudFront**: E1IB9VDMV64CQA
+- **API**: https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging
+- **DynamoDB Tables**: `aws-blog-posts-staging`, `euc-user-profiles-staging`
+- **Lambda**: Uses `$LATEST` version (immediate deployment)
+
+**Production Environment**:
+- **Purpose**: Live site serving users
+- **Site**: https://awseuccontent.com
+- **S3 Bucket**: `aws-blog-viewer-031421429609`
+- **CloudFront**: E20CC1TSSWTCWN
+- **API**: https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod
+- **DynamoDB Tables**: `aws-blog-posts`, `euc-user-profiles`
+- **Lambda**: Uses versioned aliases (instant rollback capability)
+
+**Deployment Workflow**:
+1. Deploy changes to staging
+2. Test thoroughly in staging environment
+3. If tests pass, deploy to production
+4. Monitor production and rollback if needed
+
+See `DEPLOYMENT.md` for detailed deployment procedures.
+
 ### AWS Services
 - **Lambda**: 6 serverless functions
   - API Gateway handler
@@ -84,6 +115,8 @@ EUC Content Hub aggregates AWS blog posts from multiple sources, generates AI su
 
 ### Deployment
 
+**IMPORTANT**: Always deploy to staging first, test thoroughly, then deploy to production.
+
 1. **Clone the repository**
 ```bash
 git clone https://github.com/stetlers/euccontenthub.git
@@ -99,27 +132,37 @@ export AWS_DEFAULT_REGION=us-east-1
 
 3. **Deploy infrastructure** (see INFRASTRUCTURE.md for detailed setup)
 
-4. **Deploy frontend**
+4. **Deploy frontend to staging**
 ```bash
-python deploy_frontend_complete.py
+python deploy_frontend.py staging
 ```
 
-**CRITICAL**: This script:
-- Uploads files to S3 bucket: `aws-blog-viewer-031421429609`
-- This bucket serves: `awseuccontent.com` (no www)
-- CloudFront distribution: `E20CC1TSSWTCWN`
-- **DO NOT** upload to `www.awseuccontent.com` bucket - it's not used
-- Always invalidate CloudFront after deployment
+5. **Test staging site**
+- Visit https://staging.awseuccontent.com
+- Test all functionality
+- Check browser console for errors
 
-5. **Deploy Lambda functions**
+6. **Deploy frontend to production** (if staging tests pass)
 ```bash
-python rollback_api_lambda.py
+python deploy_frontend.py production
 ```
 
-6. **Trigger initial crawl**
+7. **Deploy Lambda functions to staging**
 ```bash
-python trigger_crawler.py
+python deploy_lambda.py <function_name> staging
 ```
+
+8. **Test staging API**
+```bash
+curl https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/posts
+```
+
+9. **Deploy Lambda functions to production** (if staging tests pass)
+```bash
+python deploy_lambda.py <function_name> production
+```
+
+See `DEPLOYMENT.md` for complete deployment runbook with rollback procedures.
 
 ## Usage
 
@@ -215,7 +258,8 @@ An AI-powered chat widget helps users discover content by:
 
 ## API Endpoints
 
-Base URL: `https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod`
+**Production Base URL**: `https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod`  
+**Staging Base URL**: `https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging`
 
 - `GET /posts` - List all posts
 - `GET /posts/{id}` - Get single post
