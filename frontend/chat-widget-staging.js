@@ -1,6 +1,6 @@
 // Chat Widget JavaScript
 // Configuration - will be replaced during deployment
-const CHAT_API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod';
+const CHAT_API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging';
 
 class ChatWidget {
     constructor() {
