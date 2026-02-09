@@ -16,14 +16,42 @@ This guide is designed for AI agents (like Claude, GPT, etc.) to understand and 
 
 ## Architecture
 
+### Blue-Green Deployment (Issue #1 - COMPLETE)
+
+The project uses a blue-green deployment strategy with separate staging and production environments:
+
+**Benefits**:
+- ✅ Test changes safely before production
+- ✅ Complete data isolation (staging/production)
+- ✅ Instant Lambda rollback capability
+- ✅ No risk of staging affecting production
+
+**Key Features**:
+- Separate S3 buckets and CloudFront distributions
+- Separate DynamoDB tables (staging has `-staging` suffix)
+- Lambda aliases (production uses versions, staging uses $LATEST)
+- API Gateway stages (prod and staging)
+- Environment-aware Lambda code (reads TABLE_SUFFIX from stage variables)
+
+**Deployment Rule**: Always deploy to staging first, test, then promote to production.
+
 ### AWS Services Used
 - **Lambda**: 6 functions (API, crawlers, summary generator, classifier, chat assistant)
-- **DynamoDB**: 2 tables (aws-blog-posts, euc-user-profiles)
+  - Production alias points to specific versions
+  - Staging alias points to $LATEST
+- **DynamoDB**: 4 tables
+  - Production: `aws-blog-posts`, `euc-user-profiles`
+  - Staging: `aws-blog-posts-staging`, `euc-user-profiles-staging`
 - **S3**: Frontend hosting
-  - ✅ **CORRECT BUCKET**: `aws-blog-viewer-031421429609` (serves awseuccontent.com)
-  - ❌ **WRONG BUCKET**: `www.awseuccontent.com` (exists but NOT configured - never deploy here)
-- **CloudFront**: CDN (E20CC1TSSWTCWN distribution - alphanumeric only, no spaces)
+  - **Production**: `aws-blog-viewer-031421429609` (serves awseuccontent.com)
+  - **Staging**: `aws-blog-viewer-staging-031421429609` (serves staging.awseuccontent.com)
+  - ❌ **NEVER USE**: `www.awseuccontent.com` (exists but NOT configured)
+- **CloudFront**: CDN
+  - **Production**: E20CC1TSSWTCWN
+  - **Staging**: E1IB9VDMV64CQA
 - **API Gateway**: REST API (xox05733ce)
+  - **Production stage**: /prod
+  - **Staging stage**: /staging (with TABLE_SUFFIX=-staging variable)
 - **Cognito**: User authentication with Google OAuth
 - **Bedrock**: AI summaries and chat (Claude models)
 - **ECS/Fargate**: Selenium crawler for Builder.AWS
@@ -139,6 +167,51 @@ This guide is designed for AI agents (like Claude, GPT, etc.) to understand and 
 }
 ```
 
+## Testing in Staging
+
+Before deploying any changes to production, always test in staging first.
+
+### Why Staging Exists
+
+Staging prevents production issues by:
+- Testing code changes in a production-like environment
+- Verifying data operations don't corrupt production data
+- Catching bugs before users see them
+- Allowing safe testing of destructive operations (delete user, crawler changes)
+
+### Staging Environment Details
+
+- **Isolated Data**: Staging has 50 sample posts and 3 test user profiles
+- **Same Infrastructure**: Uses same AWS services as production
+- **Environment Detection**: Lambda automatically uses staging tables based on API Gateway stage
+- **No Production Impact**: Changes in staging never affect production
+
+### Testing Checklist
+
+**Frontend Changes**:
+- [ ] Deploy to staging: `python deploy_frontend.py staging`
+- [ ] Visit https://staging.awseuccontent.com
+- [ ] Test all changed functionality
+- [ ] Check browser console for errors
+- [ ] Test on mobile if UI changes
+- [ ] Deploy to production: `python deploy_frontend.py production`
+
+**Lambda Changes**:
+- [ ] Deploy to staging: `python deploy_lambda.py <function> staging`
+- [ ] Test staging API endpoint
+- [ ] Check CloudWatch logs for errors
+- [ ] Verify correct tables being used (staging tables)
+- [ ] Test data operations don't corrupt data
+- [ ] Deploy to production: `python deploy_lambda.py <function> production`
+
+**High-Risk Changes** (crawler, summary, classifier):
+- [ ] Deploy to staging
+- [ ] Run full operation in staging (trigger crawler, generate summaries)
+- [ ] Verify data integrity (summaries not wiped, posts created correctly)
+- [ ] Check for any data corruption
+- [ ] Monitor CloudWatch logs throughout
+- [ ] Only deploy to production if all tests pass
+
 ## Common Agent Tasks
 
 ### Task 1: Add a New Feature to Frontend
@@ -230,21 +303,82 @@ table.update_item(
 6. Lambda validates JWT using Cognito public keys
 
 ### Deployment Flow
-1. **Frontend**: 
-   - ✅ Upload to `aws-blog-viewer-031421429609` bucket
-   - ❌ NEVER upload to `www.awseuccontent.com` bucket
-   - Invalidate CloudFront distribution `E20CC1TSSWTCWN`
-   - Use `deploy_frontend_complete.py` script (targets correct bucket)
-2. **API Lambda**: 
-   - Create zip with file named `lambda_function.py` (not `api_lambda.py`)
-   - Upload to Lambda
-   - Handler must be `lambda_function.lambda_handler`
-   - Use `rollback_api_lambda.py` for proper deployment
-   - Wait 1-2 minutes for update to complete
-3. **Crawlers**: 
-   - Update code → Deploy (Selenium uses Docker/ECS)
-   - Use `redeploy_selenium_crawler.py` for Builder.AWS crawler
-4. **Always test** after deployment
+
+**IMPORTANT**: Use the blue-green deployment strategy with staging environment.
+
+#### Environments
+
+**Production**:
+- **Site**: https://awseuccontent.com
+- **S3 Bucket**: `aws-blog-viewer-031421429609`
+- **CloudFront**: E20CC1TSSWTCWN
+- **API**: https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod
+- **DynamoDB**: `aws-blog-posts`, `euc-user-profiles`
+
+**Staging**:
+- **Site**: https://staging.awseuccontent.com
+- **S3 Bucket**: `aws-blog-viewer-staging-031421429609`
+- **CloudFront**: E1IB9VDMV64CQA
+- **API**: https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging
+- **DynamoDB**: `aws-blog-posts-staging`, `euc-user-profiles-staging`
+
+#### Deployment Scripts
+
+**Frontend Deployment**:
+```bash
+# Deploy to staging first
+python deploy_frontend.py staging
+
+# Test staging thoroughly at https://staging.awseuccontent.com
+
+# Deploy to production after testing
+python deploy_frontend.py production
+```
+
+**Lambda Deployment**:
+```bash
+# Deploy to staging first
+python deploy_lambda.py api_lambda staging
+
+# Test staging API
+curl https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/posts
+
+# Deploy to production after testing
+python deploy_lambda.py api_lambda production
+```
+
+**Available Lambda Functions**:
+- `api_lambda` - API Lambda
+- `crawler` - AWS Blog crawler
+- `builder_crawler` - Builder.AWS crawler
+- `summary` - Summary generator
+- `classifier` - Content classifier
+- `chat` - Chat assistant
+
+#### Deployment Workflow
+
+1. **Make changes** to code
+2. **Deploy to staging** using deployment scripts
+3. **Test staging** thoroughly (see DEPLOYMENT.md for checklists)
+4. **Deploy to production** if tests pass
+5. **Verify production** and monitor logs
+6. **Rollback** if issues occur (instant for Lambda, 2-3 min for frontend)
+
+**See DEPLOYMENT.md for complete runbook with detailed procedures.**
+
+#### Quick Rollback
+
+**Lambda** (instant):
+```bash
+aws lambda update-alias --function-name aws-blog-api \
+  --name production --function-version <previous-version>
+```
+
+**Frontend** (2-3 minutes):
+```bash
+git checkout <previous-commit>
+python deploy_frontend.py production
+```
 
 ### Error Handling
 - Frontend: Use try/catch and `showNotification()`
@@ -342,19 +476,26 @@ response = lambda_client.invoke(
 │   ├── profile.js        # User profiles
 │   ├── chat-widget.js    # AI assistant
 │   └── styles.css        # Styling
-├── api_lambda.py         # Main API
+├── lambda_api/           # API Lambda source
+│   └── lambda_function.py
+├── api_lambda.py         # Main API (legacy location)
 ├── enhanced_crawler_lambda.py      # AWS Blog crawler
 ├── builder_selenium_crawler.py     # Builder.AWS crawler
 ├── summary_lambda.py     # AI summaries
 ├── classifier_lambda.py  # Content classification
 ├── chat_lambda.py        # AI chat assistant
-├── deploy_*.py           # Deployment scripts
+├── deploy_frontend.py    # Frontend deployment script
+├── deploy_lambda.py      # Lambda deployment script
+├── copy_data_to_staging.py  # Copy data to staging tables
+├── configure_lambda_staging.py  # Configure Lambda for staging
 ├── test_*.py             # Test scripts
 ├── check_*.py            # Diagnostic scripts
 ├── .gitignore            # Git exclusions
 ├── README.md             # Human-readable docs
 ├── AGENTS.md             # This file
-└── INFRASTRUCTURE.md     # AWS setup guide
+├── DEPLOYMENT.md         # Deployment runbook
+├── INFRASTRUCTURE.md     # AWS setup guide
+└── blue-green-deployment-plan.md  # Blue-green implementation plan
 ```
 
 ## Agent Best Practices

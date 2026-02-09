@@ -8,6 +8,9 @@ certificate_arn.txt
 cognito_config.json
 domain_config.json
 
+# Local environment setup (contains AWS account info)
+.kiro/ENVIRONMENT-SETUP.md
+
 # Python
 __pycache__/
 *.py[cod]
