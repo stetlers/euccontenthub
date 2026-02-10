@@ -1160,7 +1160,13 @@ async function loadComments(postId) {
     `;
     
     try {
-        const response = await fetch(`${API_ENDPOINT}/posts/${postId}/comments`);
+        // Include auth token if available to see pending comments
+        const headers = {};
+        if (window.authManager && window.authManager.isAuthenticated()) {
+            headers['Authorization'] = `Bearer ${window.authManager.getIdToken()}`;
+        }
+        
+        const response = await fetch(`${API_ENDPOINT}/posts/${postId}/comments`, { headers });
         
         if (!response.ok) {
             throw new Error('Failed to load comments');
@@ -1193,20 +1199,47 @@ function createCommentHTML(comment) {
     const text = escapeHtml(comment.text);
     const displayName = comment.display_name || 'User';
     const voterId = comment.voter_id || '';
+    const moderationStatus = comment.moderation_status || 'approved';
     
-    return `
-        <div class="comment-item">
+    // Check if this is a pending comment
+    const isPending = moderationStatus === 'pending_review';
+    const pendingClass = isPending ? 'comment-pending' : '';
+    
+    // Build the comment HTML
+    let commentHTML = `
+        <div class="comment-item ${pendingClass}">
             <div class="comment-header">
                 <div class="comment-meta">
                     <span class="comment-author clickable-username" data-user-id="${voterId}">
                         👤 ${escapeHtml(displayName)}
                     </span>
-                    <span class="comment-timestamp">${timestamp}</span>
+                    <span class="comment-timestamp">${timestamp}</span>`;
+    
+    // Add pending status badge if applicable
+    if (isPending) {
+        commentHTML += `
+                    <span class="comment-status">⏳ Pending Review</span>`;
+    }
+    
+    commentHTML += `
                 </div>
             </div>
-            <div class="comment-text">${text}</div>
+            <div class="comment-text">${text}</div>`;
+    
+    // Add pending notice if applicable
+    if (isPending) {
+        commentHTML += `
+            <div class="pending-notice">
+                <strong>⚠️ Pending Administrative Review</strong>
+                <p>This comment is visible only to you and will be reviewed by an administrator before being published.</p>
+            </div>`;
+    }
+    
+    commentHTML += `
         </div>
     `;
+    
+    return commentHTML;
 }
 
 async function handleSubmitComment() {
@@ -1258,6 +1291,9 @@ async function handleSubmitComment() {
         
         const data = await response.json();
         
+        // Check moderation status
+        const moderationStatus = data.comment?.moderation_status;
+        
         // Update the post in local data
         const postIndex = allPosts.findIndex(p => p.post_id === currentPostId);
         if (postIndex !== -1) {
@@ -1274,7 +1310,12 @@ async function handleSubmitComment() {
         // Refresh the posts display to update comment count
         handleFilter();
         
-        showNotification('Comment posted successfully! 💬', 'success');
+        // Show appropriate notification based on moderation status
+        if (moderationStatus === 'pending_review') {
+            showNotification('Comment submitted for review. It will be visible to you but not to other users until approved by an administrator. ⏳', 'warning');
+        } else {
+            showNotification('Comment posted successfully! 💬', 'success');
+        }
         
     } catch (err) {
         console.error('Error posting comment:', err);

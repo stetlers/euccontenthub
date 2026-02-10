@@ -10,9 +10,14 @@ import boto3
 from decimal import Decimal
 import base64
 from functools import wraps
+import threading
+import time
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
+
+# Initialize Bedrock Runtime client for comment moderation
+bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 
 # Get table suffix for staging/production isolation
 def get_table_suffix(event=None):
@@ -99,6 +104,146 @@ def validate_jwt_token(token):
     
     except Exception as e:
         raise Exception(f'Token validation failed: {str(e)}')
+
+
+def moderate_comment(text, post_context):
+    """
+    Analyze comment text using AWS Bedrock for content moderation.
+    
+    Args:
+        text: The comment text to analyze
+        post_context: Dictionary with post_id, title, tags for context
+    
+    Returns:
+        {
+            'status': 'approved' | 'pending_review',
+            'reason': str | None,  # Only present if pending_review
+            'confidence': float,    # 0.0 to 1.0
+            'timestamp': str        # ISO 8601 timestamp
+        }
+    """
+    from datetime import datetime
+    
+    # Default response (used on timeout or error)
+    default_response = {
+        'status': 'approved',
+        'reason': None,
+        'confidence': 0.0,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    # Timeout handler using threading
+    result = {'response': default_response, 'completed': False}
+    
+    def call_bedrock():
+        try:
+            # Create moderation prompt
+            prompt = f"""You are a content moderator for an AWS End User Computing (EUC) technical community platform. Analyze the following comment and determine if it should be approved or flagged for review.
+
+CONTEXT:
+- Post Title: {post_context.get('title', 'N/A')}
+- Post Tags: {post_context.get('tags', 'N/A')}
+
+COMMENT TO ANALYZE:
+{text}
+
+EVALUATION CRITERIA:
+
+1. SPAM/PROMOTIONAL (Flag if):
+   - Promotes products/services unrelated to AWS EUC
+   - Contains repetitive or template-like text
+   - Has 3+ external links
+   - Solicits business or sales
+
+2. DANGEROUS LINKS (Flag if):
+   - Contains IP address URLs
+   - Contains URL shorteners (bit.ly, tinyurl, etc.)
+   - Contains suspicious TLDs (.tk, .ml, .ga, etc.)
+   - Has 3+ URLs regardless of domain
+
+3. HARASSMENT/ABUSE (Flag if):
+   - Contains profanity, slurs, or personal attacks
+   - Contains threats or aggressive language
+   - Targets individuals rather than ideas
+
+4. OFF-TOPIC (Flag if):
+   - Discusses topics completely unrelated to AWS, cloud, or EUC
+   - Is spam or nonsense text
+
+DO NOT FLAG:
+- Technical criticism or disagreement
+- Links to AWS docs, GitHub, Stack Overflow
+- Questions about the post content
+- Personal experiences with AWS EUC services
+- Mild frustration about technical issues
+
+IMPORTANT: Prefer false negatives over false positives. When in doubt, approve.
+
+Respond in JSON format:
+{{
+  "status": "approved" or "pending_review",
+  "reason": "Brief explanation if pending_review, null if approved",
+  "confidence": 0.0 to 1.0
+}}"""
+            
+            # Call Bedrock API
+            response = bedrock_runtime.invoke_model(
+                modelId='anthropic.claude-3-haiku-20240307-v1:0',
+                body=json.dumps({
+                    'anthropic_version': 'bedrock-2023-05-31',
+                    'max_tokens': 200,
+                    'messages': [
+                        {
+                            'role': 'user',
+                            'content': prompt
+                        }
+                    ]
+                })
+            )
+            
+            # Parse response
+            response_body = json.loads(response['body'].read())
+            content = response_body['content'][0]['text']
+            
+            # Extract JSON from response
+            import re
+            json_match = re.search(r'\{[^}]+\}', content)
+            if json_match:
+                moderation_result = json.loads(json_match.group())
+                
+                # Validate and normalize response
+                status = moderation_result.get('status', 'approved')
+                if status not in ['approved', 'pending_review']:
+                    status = 'approved'
+                
+                confidence = float(moderation_result.get('confidence', 0.0))
+                confidence = max(0.0, min(1.0, confidence))  # Clamp to 0-1
+                
+                result['response'] = {
+                    'status': status,
+                    'reason': moderation_result.get('reason') if status == 'pending_review' else None,
+                    'confidence': confidence,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            
+            result['completed'] = True
+            
+        except Exception as e:
+            print(f"Bedrock moderation error: {str(e)}")
+            result['completed'] = True
+    
+    # Start Bedrock call in thread
+    thread = threading.Thread(target=call_bedrock)
+    thread.daemon = True
+    thread.start()
+    
+    # Wait up to 2 seconds
+    thread.join(timeout=2.0)
+    
+    if not result['completed']:
+        print(f"Moderation timeout for comment, defaulting to approved")
+    
+    return result['response']
 
 
 def require_auth(func):
@@ -223,7 +368,7 @@ def lambda_handler(event, context):
         elif path.startswith('/posts/') and path.endswith('/comments'):
             if http_method == 'GET':
                 post_id = path_parameters.get('id')
-                return get_comments(post_id)
+                return get_comments(event, post_id)
             elif http_method == 'POST':
                 body = json.loads(event.get('body', '{}'))
                 return add_comment(event, body)
@@ -589,9 +734,10 @@ def trigger_summary_generation():
         }
 
 
-def get_comments(post_id):
+def get_comments(event, post_id):
     """
     Get all comments for a specific post
+    Filters comments based on moderation status and viewer identity
     """
     if not post_id:
         return {
@@ -609,16 +755,44 @@ def get_comments(post_id):
                 'statusCode': 404,
                 'headers': cors_headers(),
                 'body': json.dumps({'error': 'Post not found'})
-            }
+        }
         
         comments = item.get('comments', [])
+        
+        # Get current user ID if authenticated
+        current_user_id = None
+        try:
+            headers = event.get('headers', {})
+            auth_header = headers.get('Authorization') or headers.get('authorization')
+            
+            if auth_header:
+                try:
+                    decoded = validate_jwt_token(auth_header)
+                    current_user_id = decoded.get('sub')
+                except:
+                    pass  # Not authenticated, that's okay
+        except:
+            pass  # No auth header, that's okay
+        
+        # Filter comments based on moderation status
+        filtered_comments = []
+        for comment in comments:
+            status = comment.get('moderation_status', 'approved')  # Legacy comments default to approved
+            
+            # Show approved comments to everyone
+            if status == 'approved':
+                filtered_comments.append(comment)
+            # Show pending comments only to author
+            elif status == 'pending_review' and comment.get('voter_id') == current_user_id:
+                filtered_comments.append(comment)
+            # Hide rejected comments (future functionality)
         
         return {
             'statusCode': 200,
             'headers': cors_headers(),
             'body': json.dumps({
-                'comments': comments,
-                'count': len(comments)
+                'comments': filtered_comments,
+                'count': len(filtered_comments)
             }, cls=DecimalEncoder)
         }
     
@@ -630,7 +804,7 @@ def get_comments(post_id):
 @require_auth
 def add_comment(event, body):
     """
-    Add a comment to a post
+    Add a comment to a post with automated moderation
     Requires authentication - user ID extracted from JWT token
     
     Body parameters:
@@ -671,6 +845,37 @@ def add_comment(event, body):
         from datetime import datetime
         import uuid
         
+        # Get post context for moderation
+        post_response = table.get_item(Key={'post_id': post_id})
+        post = post_response.get('Item')
+        
+        if not post:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Post not found'})
+            }
+        
+        post_context = {
+            'post_id': post_id,
+            'title': post.get('title', ''),
+            'tags': post.get('tags', '')
+        }
+        
+        # Moderate comment
+        try:
+            moderation_result = moderate_comment(text, post_context)
+            print(f"Moderation result: {json.dumps(moderation_result)}")
+        except Exception as e:
+            print(f"Moderation error: {e}")
+            # Default to approved on error
+            moderation_result = {
+                'status': 'approved',
+                'reason': None,
+                'confidence': 0.0,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        
         # Get user's display name from profile
         display_name = 'User'
         try:
@@ -681,14 +886,21 @@ def add_comment(event, body):
         except Exception as e:
             print(f"Error fetching profile for display name: {e}")
         
-        # Create comment object with display name
+        # Create comment object with moderation metadata
         comment = {
             'comment_id': str(uuid.uuid4()),
             'voter_id': voter_id,
             'display_name': display_name,
             'text': text,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.utcnow().isoformat(),
+            'moderation_status': moderation_result['status'],
+            'moderation_confidence': Decimal(str(moderation_result['confidence'])),  # Convert float to Decimal
+            'moderation_timestamp': moderation_result['timestamp']
         }
+        
+        # Add reason if flagged
+        if moderation_result['status'] == 'pending_review' and moderation_result['reason']:
+            comment['moderation_reason'] = moderation_result['reason']
         
         # Add comment to post
         table.update_item(

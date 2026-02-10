@@ -36,7 +36,9 @@ FRONTEND_FILES = [
     'profile.js',
     'chat-widget.js',
     'chat-widget.css',
-    'styles.css'
+    'styles.css',
+    'zoom-mode.js',
+    'zoom-mode.css'
 ]
 
 def get_content_type(filename):
@@ -91,20 +93,37 @@ def deploy_frontend(environment):
     uploaded_count = 0
     
     for filename in FRONTEND_FILES:
-        file_path = frontend_dir / filename
+        # Handle environment-specific files
+        source_filename = filename
+        target_filename = filename
+        
+        if environment == 'staging':
+            # Use staging-specific files if they exist
+            if filename == 'index.html':
+                staging_file = frontend_dir / 'index-staging.html'
+                if staging_file.exists():
+                    source_filename = 'index-staging.html'
+                    print(f"  ℹ️  Using index-staging.html for staging")
+            elif filename == 'auth.js':
+                staging_file = frontend_dir / 'auth-staging.js'
+                if staging_file.exists():
+                    source_filename = 'auth-staging.js'
+                    print(f"  ℹ️  Using auth-staging.js for staging")
+        
+        file_path = frontend_dir / source_filename
         
         if not file_path.exists():
-            print(f"  ⚠️  Warning: {filename} not found, skipping")
+            print(f"  ⚠️  Warning: {source_filename} not found, skipping")
             continue
         
         try:
-            content_type = get_content_type(filename)
-            print(f"  📤 Uploading {filename}... ", end='', flush=True)
+            content_type = get_content_type(target_filename)
+            print(f"  📤 Uploading {source_filename} as {target_filename}... ", end='', flush=True)
             
             s3.upload_file(
                 str(file_path),
                 bucket,
-                filename,
+                target_filename,
                 ExtraArgs={
                     'ContentType': content_type,
                     'CacheControl': 'max-age=300'  # 5 minutes cache

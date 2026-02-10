@@ -623,6 +623,11 @@ select:hover, .btn-secondary:hover {
     color: white;
 }
 
+.notification.warning {
+    background: #ff9800;
+    color: white;
+}
+
 .notification.info {
     background: #2196F3;
     color: white;
@@ -984,6 +989,46 @@ select:hover, .btn-secondary:hover {
     margin-bottom: 12px;
     border-left: 3px solid var(--secondary-color);
     animation: commentSlideIn 0.3s ease-out;
+}
+
+/* Pending comment styling */
+.comment-item.comment-pending {
+    background: #fff9e6;
+    border-left: 3px solid #ff9800;
+    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.15);
+}
+
+.comment-status {
+    background-color: #ff9800;
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pending-notice {
+    margin-top: 12px;
+    padding: 12px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.pending-notice strong {
+    display: block;
+    color: #e65100;
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+}
+
+.pending-notice p {
+    color: #856404;
+    margin: 0;
+    line-height: 1.4;
 }
 
 @keyframes commentSlideIn {
