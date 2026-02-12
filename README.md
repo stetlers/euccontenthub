@@ -207,22 +207,67 @@ See `DEPLOYMENT.md` for complete deployment runbook with rollback procedures.
 ## Key Features Explained
 
 ### Multi-Source Crawling
-The platform crawls two sources:
-- **AWS Blog**: RSS feed parsing with metadata extraction
-- **Builder.AWS**: Selenium-based crawling for dynamic content and real author names
+The platform crawls two sources with different architectures:
+
+#### AWS Blog Crawler (Single-Stage)
+**Simple RSS-based crawling** - all data available in RSS feed:
+
+```
+AWS Blog RSS Feed
+       ↓
+Enhanced Crawler Lambda (enhanced_crawler_lambda.py)
+  - Extracts: title, authors, content, dates
+  - Filters: EUC-related posts only
+  - Saves to DynamoDB
+       ↓
+Summary Generator Lambda (batch_size=5)
+  - Generates AI summaries
+       ↓
+Classifier Lambda (batch_size=5)
+  - Assigns content type labels
+```
+
+#### Builder.AWS Crawler (Two-Stage)
+**Complex two-stage crawling** - sitemap lacks authors/content, requires full page load:
+
+```
+Builder.AWS Sitemap
+       ↓
+Sitemap Crawler (enhanced_crawler_lambda.py - BuilderAWSCrawler)
+  - Extracts: URL, title (from slug), dates (from lastmod)
+  - Detects: NEW or CHANGED posts (via lastmod comparison)
+  - Preserves: Existing authors/content/summaries for UNCHANGED posts
+  - Uses: Generic placeholders for new posts
+       ↓
+Selenium Crawler (builder_selenium_crawler.py) - ONLY for NEW/CHANGED posts
+  - Runs in: ECS/Fargate container with Chrome
+  - Fetches: Real author names and full content
+  - Updates: DynamoDB with real data
+       ↓
+Summary Generator Lambda (batch_size=5) - ONLY for NEW/CHANGED posts
+  - Generates AI summaries from real content
+       ↓
+Classifier Lambda (batch_size=5) - ONLY for NEW/CHANGED posts
+  - Assigns content type labels
+```
+
+**Why Two Crawlers for Builder.AWS?**
+- Builder.AWS doesn't provide RSS feed with full content
+- Sitemap is fast (metadata only) but lacks authors/content
+- Selenium is slow (full page load with Chrome) but gets real data
+- Running Selenium for ALL posts on every crawl would be too expensive
+- **Solution**: Sitemap detects changes (cheap), Selenium enriches only changed posts (expensive but targeted)
+
+**Critical Rules**:
+1. **Author Field is Sacred**: Never overwrite real author names with "AWS Builder Community"
+2. **Summary Preservation**: Only clear summaries when actual article content changes (detected by lastmod)
+3. **Change Detection**: Only actual Builder.AWS article changes trigger the expensive Selenium → Summary → Classifier pipeline
+4. **Data Preservation**: DynamoDB enrichment (adding real authors) does NOT trigger summary regeneration
 
 **How Crawlers Are Triggered**:
 1. **Website Button**: "Refresh Posts" button (requires authentication)
 2. **Manual Invocation**: Direct Lambda/ECS task invocation
 3. **No Automatic Scheduling**: Crawlers do NOT run on a schedule
-
-**Crawler Flow**:
-1. User clicks "Refresh Posts" or manually invokes crawler
-2. Crawler extracts posts and saves to DynamoDB
-3. Crawler automatically invokes Summary Generator Lambda
-4. Summary Generator processes posts in batches of 10
-5. Summary Generator automatically invokes Classifier Lambda
-6. Classifier categorizes posts in batches of 50
 
 ### AI Summaries
 Every post gets a 2-3 sentence AI-generated summary using AWS Bedrock's Claude Haiku model.
