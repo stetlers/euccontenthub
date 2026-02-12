@@ -76,26 +76,52 @@ The project uses a blue-green deployment strategy with separate staging and prod
 - CORS enabled for cross-origin requests
 
 **Enhanced Crawler** (`enhanced_crawler_lambda.py`)
-- Crawls AWS Blog RSS feed
-- Extracts metadata, content, authors
-- Auto-triggers summary generation after crawl completes
+- **AWS Blog Crawler**: Crawls AWS Blog RSS feed, extracts full content and authors
+- **Builder.AWS Sitemap Crawler**: Fast metadata-only crawler for Builder.AWS
+  - Extracts: URL, title (from slug), dates (from sitemap lastmod)
+  - Does NOT extract: real authors or content (uses placeholders)
+  - Detects NEW/CHANGED posts via lastmod date comparison
+  - Preserves existing authors/content/summaries for UNCHANGED posts
+  - Auto-triggers Selenium crawler for NEW/CHANGED posts only
 - Filters for EUC-related content
 - **Trigger Method**: Manual only (website button or direct invocation - NO automatic scheduling)
 
 **Builder Selenium Crawler** (`builder_selenium_crawler.py`)
 - Runs in ECS/Fargate container with Chrome
-- Crawls Builder.AWS sitemap
-- Extracts full content including real author names
+- Fetches real content and author names from Builder.AWS pages
 - Handles dynamic JavaScript content
+- **Only runs for NEW/CHANGED posts** (invoked by sitemap crawler)
 - Auto-triggers summary generation after crawl completes
-- **Trigger Method**: Manual only (website button or direct invocation - NO automatic scheduling)
+- **Trigger Method**: Invoked by sitemap crawler OR manual invocation
+
+**CRITICAL: Builder.AWS Crawler Orchestration**
+```
+1. Sitemap Crawler (enhanced_crawler_lambda.py)
+   ↓ Detects NEW or CHANGED posts (via lastmod date)
+   ↓ Preserves existing data for UNCHANGED posts
+   ↓
+2. Selenium Crawler (builder_selenium_crawler.py)
+   ↓ Fetches real content and authors for NEW/CHANGED posts only
+   ↓
+3. Summary Generator (summary_lambda.py)
+   ↓ Generates AI summaries for NEW/CHANGED posts only
+   ↓
+4. Classifier (classifier_lambda.py)
+   ↓ Generates AI labels for NEW/CHANGED posts only
+```
+
+**Why Two Crawlers for Builder.AWS?**
+- Builder.AWS doesn't provide RSS feed with full content
+- Sitemap is fast (metadata only) but lacks authors/content
+- Selenium is slow (full page load) but gets real data
+- Running Selenium for ALL posts on every crawl would be too expensive
+- Solution: Sitemap detects changes, Selenium enriches only changed posts
 
 **Summary Generator** (`summary_lambda.py`)
 - Uses AWS Bedrock (Claude Haiku)
 - Generates 2-3 sentence summaries
-- **Batch Processing**: Processes 10 posts per invocation
+- **Batch Processing**: Processes 5 posts per invocation (optimized for 3000-char content)
 - **Does NOT auto-chain**: Must be invoked multiple times for large datasets
-- Use `generate_all_builder_summaries.py` to loop through all posts needing summaries
 - Auto-invokes classifier Lambda after each batch completes
 - Automatically triggered by crawlers when new posts are created
 
@@ -108,7 +134,7 @@ The project uses a blue-green deployment strategy with separate staging and prod
   - Best Practices
   - Case Study
 - Provides confidence scores
-- Batch processing (50 posts at a time)
+- Batch processing (5 posts at a time, matching summary generator)
 - Automatically triggered by summary generator after summaries complete
 
 **Chat Assistant** (`chat_lambda.py`)

@@ -503,7 +503,7 @@ class BuilderAWSCrawler:
             'date_published': lastmod,
             'date_updated': lastmod,
             'tags': 'End User Computing, Builder.AWS',
-            'content': f"Learn more about {title}. Visit the full article on Builder.AWS for detailed information and insights.",
+            'content': 'Builder.AWS article. Visit the full article on Builder.AWS for detailed information and insights.',
             'source': 'builder.aws.com'
         }
     
@@ -522,11 +522,15 @@ class BuilderAWSCrawler:
                     self.posts_updated += 1
                     existing_item = response['Item']
                     
-                    # Check if content changed
-                    old_content = existing_item.get('content', '')
-                    new_content = metadata['content']
-                    if old_content != new_content:
+                    # For Builder articles, use lastmod date instead of content for change detection
+                    # This prevents false positives from template string variations
+                    old_date = existing_item.get('date_updated', '')
+                    new_date = metadata['date_updated']
+                    if old_date != new_date:
                         content_changed = True
+                        print(f"  Article updated (lastmod changed: {old_date} → {new_date})")
+                    else:
+                        print(f"  Article unchanged (lastmod: {new_date})")
                 else:
                     self.posts_created += 1
                     content_changed = True
@@ -567,17 +571,21 @@ class BuilderAWSCrawler:
                 self.posts_needing_summaries += 1
                 self.posts_needing_classification += 1
             else:
+                # Post unchanged - preserve existing authors, content, and summary
+                # Only update metadata fields and use if_not_exists() for critical fields
                 update_expression = '''
                     SET #url = :url,
                         title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
+                        date_published = if_not_exists(date_published, :date_published),
                         date_updated = :date_updated,
                         tags = :tags,
-                        content = :content,
                         last_crawled = :last_crawled,
-                        #source = :source
+                        #source = :source,
+                        authors = if_not_exists(authors, :authors),
+                        content = if_not_exists(content, :content)
                 '''
+                # Note: Does NOT touch summary, label, or other AI-generated fields
+                # This preserves real author names and content from Selenium crawler
                 expression_values = {
                     ':url': metadata['url'],
                     ':title': metadata['title'],
@@ -754,8 +762,8 @@ def lambda_handler(event, context):
                 environment = os.environ.get('ENVIRONMENT', 'production')
                 function_name = f"aws-blog-summary-generator:{environment}"
                 
-                # Calculate number of batches needed (50 posts per batch)
-                batch_size = 50
+                # Calculate number of batches needed (5 posts per batch to avoid timeouts)
+                batch_size = 5
                 num_batches = (posts_needing_summaries + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
@@ -768,6 +776,7 @@ def lambda_handler(event, context):
                         })
                     )
                     print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
+                    time.sleep(2)  # 2-second delay between batches
                 
                 results['summary_batches_invoked'] = num_batches
             except Exception as e:
@@ -787,8 +796,8 @@ def lambda_handler(event, context):
                 environment = os.environ.get('ENVIRONMENT', 'production')
                 function_name = f"aws-blog-classifier:{environment}"
                 
-                # Calculate number of batches needed (50 posts per batch)
-                batch_size = 50
+                # Calculate number of batches needed (5 posts per batch to avoid timeouts)
+                batch_size = 5
                 num_batches = (posts_needing_classification + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
@@ -800,7 +809,7 @@ def lambda_handler(event, context):
                         })
                     )
                     print(f"  Invoked classifier batch {i+1}/{num_batches} ({function_name})")
-                    time.sleep(0.5)  # Small delay between batches
+                    time.sleep(2)  # 2-second delay between batches
                 
                 results['classifier_batches_invoked'] = num_batches
             except Exception as e:

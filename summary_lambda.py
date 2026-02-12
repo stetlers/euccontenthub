@@ -102,7 +102,7 @@ def lambda_handler(event, context):
     
     try:
         post_id = event.get('post_id') if event else None
-        batch_size = event.get('batch_size', 10) if event else 10
+        batch_size = event.get('batch_size', 5) if event else 5
         force = event.get('force', False) if event else False
         
         print(f"Starting summary generation")
