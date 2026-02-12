@@ -27,17 +27,41 @@
   - [x] 4.5 Verify 0 real content replaced with template
   - [x] 4.6 Check crawler logs for errors
 
-- [ ] 5. Deploy to production
-  - [ ] 5.1 Review staging test results
-  - [ ] 5.2 Deploy to production Lambda
-  - [ ] 5.3 Run crawler in production
-  - [ ] 5.4 Monitor for regressions
+- [x] 5. Implement orchestration fix
+  - [x] 5.1 Add `changed_post_ids` list to BuilderAWSCrawler.__init__()
+  - [x] 5.2 Track changed post IDs in save_to_dynamodb()
+  - [x] 5.3 Invoke Selenium crawler with post_ids in lambda_handler()
+  - [x] 5.4 Update Summary/Classifier invocation to only run for AWS Blog posts
+  - [x] 5.5 Copy changes to crawler_code/lambda_function.py
 
-- [ ] 6. Update documentation
-  - [ ] 6.1 Update AGENTS.md with Builder crawler rules
-  - [ ] 6.2 Update github-issue-builder-crawler-problem.md
-  - [ ] 6.3 Create completion document
-  - [ ] 6.4 Update Issue #26 with resolution
+- [ ] 6. Update Selenium crawler
+  - [ ] 6.1 Add `post_ids` parameter to lambda_handler()
+  - [ ] 6.2 Query DynamoDB for URLs if post_ids provided
+  - [ ] 6.3 Crawl only specified posts if post_ids provided
+  - [ ] 6.4 Otherwise use current behavior (crawl all EUC posts)
+  - [ ] 6.5 Deploy to staging ECS task
+
+- [ ] 7. Test complete orchestration in staging
+  - [ ] 7.1 Deploy both crawlers to staging
+  - [ ] 7.2 Run sitemap crawler
+  - [ ] 7.3 Verify Selenium crawler invoked with correct post_ids
+  - [ ] 7.4 Verify real authors fetched
+  - [ ] 7.5 Verify summaries generated from real content
+  - [ ] 7.6 Verify 0% data loss
+
+- [ ] 8. Deploy to production
+  - [ ] 8.1 Review staging test results
+  - [ ] 8.2 Deploy sitemap crawler to production Lambda
+  - [ ] 8.3 Deploy Selenium crawler to production ECS
+  - [ ] 8.4 Run crawler in production
+  - [ ] 8.5 Monitor for regressions
+
+- [ ] 9. Update documentation
+  - [x] 9.1 Update AGENTS.md with Builder crawler rules
+  - [x] 9.2 Update README.md with architecture diagrams
+  - [x] 9.3 Create completion document
+  - [ ] 9.4 Update Issue #26 with final resolution
+  - [ ] 9.5 Close Issue #26
 
 ## Task Details
 

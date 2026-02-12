@@ -416,6 +416,7 @@ class BuilderAWSCrawler:
         self.posts_created = 0
         self.posts_needing_summaries = 0
         self.posts_needing_classification = 0
+        self.changed_post_ids = []  # Track post IDs that changed (for Selenium crawler)
     
     def get_article_sitemaps(self):
         """Get list of article sitemap URLs from sitemap index"""
@@ -540,6 +541,9 @@ class BuilderAWSCrawler:
             
             # Build update expression
             if content_changed:
+                # Track this post ID for Selenium crawler
+                self.changed_post_ids.append(post_id)
+                
                 update_expression = '''
                     SET #url = :url,
                         title = :title,
@@ -737,6 +741,35 @@ def lambda_handler(event, context):
             builder_crawler = BuilderAWSCrawler(table_name)
             builder_results = builder_crawler.crawl_all_posts()
             all_results['builder_aws'] = builder_results
+            
+            # Invoke Selenium crawler for changed posts (to fetch real authors/content)
+            changed_post_ids = builder_crawler.changed_post_ids
+            if changed_post_ids:
+                print(f"\n{len(changed_post_ids)} Builder.AWS posts changed - invoking Selenium crawler")
+                print(f"Changed post IDs: {changed_post_ids[:5]}{'...' if len(changed_post_ids) > 5 else ''}")
+                
+                try:
+                    lambda_client = boto3.client('lambda')
+                    
+                    # Invoke Selenium crawler with the list of changed post IDs
+                    # The Selenium crawler will fetch real authors and content for these posts
+                    # and then automatically invoke Summary → Classifier
+                    lambda_client.invoke(
+                        FunctionName='aws-blog-builder-selenium-crawler',  # No alias - ECS task
+                        InvocationType='Event',  # Async invocation
+                        Payload=json.dumps({
+                            'post_ids': changed_post_ids,
+                            'table_name': table_name
+                        })
+                    )
+                    print(f"  ✓ Invoked Selenium crawler for {len(changed_post_ids)} posts")
+                    builder_results['selenium_crawler_invoked'] = True
+                    builder_results['selenium_post_count'] = len(changed_post_ids)
+                except Exception as e:
+                    print(f"  Warning: Could not invoke Selenium crawler: {e}")
+                    builder_results['selenium_error'] = str(e)
+            else:
+                print(f"\nNo Builder.AWS posts changed - skipping Selenium crawler")
         
         # Combine results
         results = {
@@ -749,10 +782,11 @@ def lambda_handler(event, context):
             'by_source': all_results
         }
         
-        # Automatically invoke summary Lambda if posts need summaries
-        posts_needing_summaries = results.get('posts_needing_summaries', 0)
-        if posts_needing_summaries > 0:
-            print(f"\n{posts_needing_summaries} posts need summary generation")
+        # Automatically invoke summary Lambda for AWS Blog posts only
+        # (Builder.AWS posts are handled by Selenium crawler → Summary → Classifier chain)
+        aws_blog_summaries_needed = all_results.get('aws_blog', {}).get('posts_needing_summaries', 0)
+        if aws_blog_summaries_needed > 0:
+            print(f"\n{aws_blog_summaries_needed} AWS Blog posts need summary generation")
             print("Invoking summary Lambda...")
             
             try:
@@ -764,7 +798,7 @@ def lambda_handler(event, context):
                 
                 # Calculate number of batches needed (5 posts per batch to avoid timeouts)
                 batch_size = 5
-                num_batches = (posts_needing_summaries + batch_size - 1) // batch_size
+                num_batches = (aws_blog_summaries_needed + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
                     lambda_client.invoke(
@@ -783,10 +817,11 @@ def lambda_handler(event, context):
                 print(f"  Warning: Could not invoke summary Lambda: {e}")
                 results['summary_error'] = str(e)
         
-        # Automatically invoke classifier Lambda if posts need classification
-        posts_needing_classification = results.get('posts_needing_classification', 0)
-        if posts_needing_classification > 0:
-            print(f"\n{posts_needing_classification} posts need classification")
+        # Automatically invoke classifier Lambda for AWS Blog posts only
+        # (Builder.AWS posts are handled by Selenium crawler → Summary → Classifier chain)
+        aws_blog_classification_needed = all_results.get('aws_blog', {}).get('posts_needing_classification', 0)
+        if aws_blog_classification_needed > 0:
+            print(f"\n{aws_blog_classification_needed} AWS Blog posts need classification")
             print("Invoking classifier Lambda...")
             
             try:
@@ -798,7 +833,7 @@ def lambda_handler(event, context):
                 
                 # Calculate number of batches needed (5 posts per batch to avoid timeouts)
                 batch_size = 5
-                num_batches = (posts_needing_classification + batch_size - 1) // batch_size
+                num_batches = (aws_blog_classification_needed + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
                     lambda_client.invoke(

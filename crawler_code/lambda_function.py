@@ -414,10 +414,9 @@ class BuilderAWSCrawler:
         self.posts_processed = 0
         self.posts_updated = 0
         self.posts_created = 0
-        self.posts_changed = 0
-        self.posts_unchanged = 0
         self.posts_needing_summaries = 0
         self.posts_needing_classification = 0
+        self.changed_post_ids = []  # Track post IDs that changed (for Selenium crawler)
     
     def get_article_sitemaps(self):
         """Get list of article sitemap URLs from sitemap index"""
@@ -524,28 +523,27 @@ class BuilderAWSCrawler:
                     self.posts_updated += 1
                     existing_item = response['Item']
                     
-                    # Check if lastmod date changed
-                    old_lastmod = existing_item.get('date_updated', '')
-                    new_lastmod = metadata['date_updated']
-                    if old_lastmod != new_lastmod:
+                    # For Builder articles, use lastmod date instead of content for change detection
+                    # This prevents false positives from template string variations
+                    old_date = existing_item.get('date_updated', '')
+                    new_date = metadata['date_updated']
+                    if old_date != new_date:
                         content_changed = True
-                        self.posts_changed += 1
-                        print(f"  Article updated (lastmod changed: {old_lastmod} → {new_lastmod})")
+                        print(f"  Article updated (lastmod changed: {old_date} → {new_date})")
                     else:
-                        content_changed = False
-                        self.posts_unchanged += 1
-                        print(f"  Article unchanged (lastmod: {new_lastmod})")
+                        print(f"  Article unchanged (lastmod: {new_date})")
                 else:
                     self.posts_created += 1
                     content_changed = True
-                    print(f"  New article (lastmod: {metadata['date_updated']})")
             except:
                 self.posts_created += 1
                 content_changed = True
-                print(f"  New article (lastmod: {metadata['date_updated']})")
             
             # Build update expression
             if content_changed:
+                # Track this post ID for Selenium crawler
+                self.changed_post_ids.append(post_id)
+                
                 update_expression = '''
                     SET #url = :url,
                         title = :title,
@@ -577,17 +575,21 @@ class BuilderAWSCrawler:
                 self.posts_needing_summaries += 1
                 self.posts_needing_classification += 1
             else:
+                # Post unchanged - preserve existing authors, content, and summary
+                # Only update metadata fields and use if_not_exists() for critical fields
                 update_expression = '''
                     SET #url = :url,
                         title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
+                        date_published = if_not_exists(date_published, :date_published),
                         date_updated = :date_updated,
                         tags = :tags,
-                        content = :content,
                         last_crawled = :last_crawled,
-                        #source = :source
+                        #source = :source,
+                        authors = if_not_exists(authors, :authors),
+                        content = if_not_exists(content, :content)
                 '''
+                # Note: Does NOT touch summary, label, or other AI-generated fields
+                # This preserves real author names and content from Selenium crawler
                 expression_values = {
                     ':url': metadata['url'],
                     ':title': metadata['title'],
@@ -689,8 +691,6 @@ class BuilderAWSCrawler:
             'posts_processed': self.posts_processed,
             'posts_created': self.posts_created,
             'posts_updated': self.posts_updated,
-            'posts_changed': self.posts_changed,
-            'posts_unchanged': self.posts_unchanged,
             'posts_needing_summaries': self.posts_needing_summaries,
             'posts_needing_classification': self.posts_needing_classification
         }
@@ -741,6 +741,35 @@ def lambda_handler(event, context):
             builder_crawler = BuilderAWSCrawler(table_name)
             builder_results = builder_crawler.crawl_all_posts()
             all_results['builder_aws'] = builder_results
+            
+            # Invoke Selenium crawler for changed posts (to fetch real authors/content)
+            changed_post_ids = builder_crawler.changed_post_ids
+            if changed_post_ids:
+                print(f"\n{len(changed_post_ids)} Builder.AWS posts changed - invoking Selenium crawler")
+                print(f"Changed post IDs: {changed_post_ids[:5]}{'...' if len(changed_post_ids) > 5 else ''}")
+                
+                try:
+                    lambda_client = boto3.client('lambda')
+                    
+                    # Invoke Selenium crawler with the list of changed post IDs
+                    # The Selenium crawler will fetch real authors and content for these posts
+                    # and then automatically invoke Summary → Classifier
+                    lambda_client.invoke(
+                        FunctionName='aws-blog-builder-selenium-crawler',  # No alias - ECS task
+                        InvocationType='Event',  # Async invocation
+                        Payload=json.dumps({
+                            'post_ids': changed_post_ids,
+                            'table_name': table_name
+                        })
+                    )
+                    print(f"  ✓ Invoked Selenium crawler for {len(changed_post_ids)} posts")
+                    builder_results['selenium_crawler_invoked'] = True
+                    builder_results['selenium_post_count'] = len(changed_post_ids)
+                except Exception as e:
+                    print(f"  Warning: Could not invoke Selenium crawler: {e}")
+                    builder_results['selenium_error'] = str(e)
+            else:
+                print(f"\nNo Builder.AWS posts changed - skipping Selenium crawler")
         
         # Combine results
         results = {
@@ -748,17 +777,16 @@ def lambda_handler(event, context):
             'posts_processed': sum(r.get('posts_processed', 0) for r in all_results.values()),
             'posts_created': sum(r.get('posts_created', 0) for r in all_results.values()),
             'posts_updated': sum(r.get('posts_updated', 0) for r in all_results.values()),
-            'posts_changed': sum(r.get('posts_changed', 0) for r in all_results.values()),
-            'posts_unchanged': sum(r.get('posts_unchanged', 0) for r in all_results.values()),
             'posts_needing_summaries': sum(r.get('posts_needing_summaries', 0) for r in all_results.values()),
             'posts_needing_classification': sum(r.get('posts_needing_classification', 0) for r in all_results.values()),
             'by_source': all_results
         }
         
-        # Automatically invoke summary Lambda if posts need summaries
-        posts_needing_summaries = results.get('posts_needing_summaries', 0)
-        if posts_needing_summaries > 0:
-            print(f"\n{posts_needing_summaries} posts need summary generation")
+        # Automatically invoke summary Lambda for AWS Blog posts only
+        # (Builder.AWS posts are handled by Selenium crawler → Summary → Classifier chain)
+        aws_blog_summaries_needed = all_results.get('aws_blog', {}).get('posts_needing_summaries', 0)
+        if aws_blog_summaries_needed > 0:
+            print(f"\n{aws_blog_summaries_needed} AWS Blog posts need summary generation")
             print("Invoking summary Lambda...")
             
             try:
@@ -768,9 +796,9 @@ def lambda_handler(event, context):
                 environment = os.environ.get('ENVIRONMENT', 'production')
                 function_name = f"aws-blog-summary-generator:{environment}"
                 
-                # Calculate number of batches needed (50 posts per batch)
-                batch_size = 50
-                num_batches = (posts_needing_summaries + batch_size - 1) // batch_size
+                # Calculate number of batches needed (5 posts per batch to avoid timeouts)
+                batch_size = 5
+                num_batches = (aws_blog_summaries_needed + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
                     lambda_client.invoke(
@@ -782,16 +810,18 @@ def lambda_handler(event, context):
                         })
                     )
                     print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
+                    time.sleep(2)  # 2-second delay between batches
                 
                 results['summary_batches_invoked'] = num_batches
             except Exception as e:
                 print(f"  Warning: Could not invoke summary Lambda: {e}")
                 results['summary_error'] = str(e)
         
-        # Automatically invoke classifier Lambda if posts need classification
-        posts_needing_classification = results.get('posts_needing_classification', 0)
-        if posts_needing_classification > 0:
-            print(f"\n{posts_needing_classification} posts need classification")
+        # Automatically invoke classifier Lambda for AWS Blog posts only
+        # (Builder.AWS posts are handled by Selenium crawler → Summary → Classifier chain)
+        aws_blog_classification_needed = all_results.get('aws_blog', {}).get('posts_needing_classification', 0)
+        if aws_blog_classification_needed > 0:
+            print(f"\n{aws_blog_classification_needed} AWS Blog posts need classification")
             print("Invoking classifier Lambda...")
             
             try:
@@ -801,9 +831,9 @@ def lambda_handler(event, context):
                 environment = os.environ.get('ENVIRONMENT', 'production')
                 function_name = f"aws-blog-classifier:{environment}"
                 
-                # Calculate number of batches needed (50 posts per batch)
-                batch_size = 50
-                num_batches = (posts_needing_classification + batch_size - 1) // batch_size
+                # Calculate number of batches needed (5 posts per batch to avoid timeouts)
+                batch_size = 5
+                num_batches = (aws_blog_classification_needed + batch_size - 1) // batch_size
                 
                 for i in range(num_batches):
                     lambda_client.invoke(
@@ -814,7 +844,7 @@ def lambda_handler(event, context):
                         })
                     )
                     print(f"  Invoked classifier batch {i+1}/{num_batches} ({function_name})")
-                    time.sleep(0.5)  # Small delay between batches
+                    time.sleep(2)  # 2-second delay between batches
                 
                 results['classifier_batches_invoked'] = num_batches
             except Exception as e:
@@ -835,8 +865,6 @@ def lambda_handler(event, context):
         print(f"  Posts processed: {results['posts_processed']}")
         print(f"  Posts created: {results['posts_created']}")
         print(f"  Posts updated: {results['posts_updated']}")
-        print(f"  Posts changed: {results.get('posts_changed', 0)}")
-        print(f"  Posts unchanged: {results.get('posts_unchanged', 0)}")
         print(f"  Posts needing summaries: {results.get('posts_needing_summaries', 0)}")
         if 'summary_batches_invoked' in results:
             print(f"  Summary batches invoked: {results['summary_batches_invoked']}")
