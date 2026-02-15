@@ -41,10 +41,20 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(obj)
 
 
-def generate_summary(title, content):
+def generate_summary(title, content, max_retries=5):
     """
-    Generate a 2-3 sentence summary using AWS Bedrock
+    Generate a 2-3 sentence summary using AWS Bedrock with exponential backoff
+    
+    Args:
+        title: Blog post title
+        content: Blog post content
+        max_retries: Maximum number of retry attempts (default: 5)
+    
+    Returns:
+        Summary string or None if all retries fail
     """
+    import time
+    
     if not content or len(content.strip()) < 50:
         return "Summary not available - insufficient content."
     
@@ -60,34 +70,54 @@ Task: Write a 2-3 sentence summary that captures the main topic and key takeaway
 
 Summary:"""
 
-    try:
-        # Call Bedrock API
-        request_body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 200,
-            "temperature": 0.3,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-        
-        response = bedrock.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(request_body)
-        )
-        
-        # Parse response
-        response_body = json.loads(response['body'].read())
-        summary = response_body['content'][0]['text'].strip()
-        
-        return summary
-        
-    except Exception as e:
-        print(f"Error generating summary: {e}")
-        return f"Error generating summary: {str(e)}"
+    request_body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 200,
+        "temperature": 0.3,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    }
+    
+    # Exponential backoff retry logic
+    for attempt in range(max_retries):
+        try:
+            response = bedrock.invoke_model(
+                modelId=MODEL_ID,
+                body=json.dumps(request_body)
+            )
+            
+            # Parse response
+            response_body = json.loads(response['body'].read())
+            summary = response_body['content'][0]['text'].strip()
+            
+            return summary
+            
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check if it's a throttling error
+            if 'ThrottlingException' in error_str or 'Too many requests' in error_str:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                    wait_time = 2 ** attempt
+                    print(f"  Throttled, waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"  Max retries reached after throttling")
+                    return None  # Return None instead of error message
+            else:
+                # Non-throttling error, don't retry
+                print(f"  Non-throttling error: {e}")
+                return None
+    
+    # All retries exhausted
+    print(f"  Failed to generate summary after {max_retries} attempts")
+    return None
 
 
 def lambda_handler(event, context):
@@ -101,11 +131,13 @@ def lambda_handler(event, context):
     """
     
     try:
+        print(f"DEBUG: Raw event: {json.dumps(event) if event else 'None'}")
         post_id = event.get('post_id') if event else None
-        batch_size = event.get('batch_size', 5) if event else 5
+        batch_size = event.get('batch_size', 10) if event else 10
         force = event.get('force', False) if event else False
         
         print(f"Starting summary generation")
+        print(f"DEBUG: Extracted post_id={post_id}, batch_size={batch_size}, force={force}")
         print(f"Batch size: {batch_size}")
         print(f"Force regenerate: {force}")
         
@@ -159,9 +191,12 @@ def lambda_handler(event, context):
         
         print(f"Found {len(posts_to_process)} posts to process")
         
+        # Track post IDs that get summaries for classifier
+        summarized_post_ids = []
+        
         # Process each post
         for post in posts_to_process:
-            post_id = post['post_id']
+            current_post_id = post['post_id']
             title = post.get('title', 'Untitled')
             content = post.get('content', '')
             
@@ -169,12 +204,18 @@ def lambda_handler(event, context):
             posts_processed += 1
             
             try:
-                # Generate summary
+                # Generate summary with exponential backoff
                 summary = generate_summary(title, content)
+                
+                # If summary generation failed (returned None), skip this post
+                if summary is None:
+                    print(f"  ⚠️  Skipped - failed to generate summary after retries")
+                    errors += 1
+                    continue
                 
                 # Save to DynamoDB
                 table.update_item(
-                    Key={'post_id': post_id},
+                    Key={'post_id': current_post_id},
                     UpdateExpression='SET summary = :summary, summary_generated = :timestamp',
                     ExpressionAttributeValues={
                         ':summary': summary,
@@ -183,10 +224,11 @@ def lambda_handler(event, context):
                 )
                 
                 summaries_generated += 1
+                summarized_post_ids.append(current_post_id)
                 print(f"  ✓ Summary generated: {summary[:80]}...")
                 
             except Exception as e:
-                print(f"  ✗ Error processing {post_id}: {e}")
+                print(f"  ✗ Error processing {current_post_id}: {e}")
                 errors += 1
         
         # Prepare response
@@ -201,11 +243,12 @@ def lambda_handler(event, context):
         print(f"  Posts processed: {posts_processed}")
         print(f"  Summaries generated: {summaries_generated}")
         print(f"  Errors: {errors}")
+        print(f"  [AUTOCHAIN-V2-DEPLOYED]")  # Marker to verify deployment
         
         # Automatically invoke classifier Lambda for posts that got summaries
-        if summaries_generated > 0:
+        if summaries_generated > 0 and summarized_post_ids:
             print(f"\n{summaries_generated} posts got new summaries")
-            print("Invoking classifier Lambda...")
+            print("Invoking classifier Lambda for specific posts...")
             
             try:
                 lambda_client = boto3.client('lambda')
@@ -214,24 +257,78 @@ def lambda_handler(event, context):
                 environment = os.environ.get('ENVIRONMENT', 'production')
                 function_name = f"aws-blog-classifier:{environment}"
                 
-                # Calculate number of batches needed (50 posts per batch)
-                classifier_batch_size = 50
-                num_batches = (summaries_generated + classifier_batch_size - 1) // classifier_batch_size
-                
-                for i in range(num_batches):
+                # Invoke classifier once for each post that got a summary
+                # This ensures the classifier processes these specific posts
+                for summarized_post_id in summarized_post_ids:
                     lambda_client.invoke(
                         FunctionName=function_name,
                         InvocationType='Event',  # Async invocation
                         Payload=json.dumps({
-                            'batch_size': classifier_batch_size
+                            'post_id': summarized_post_id
                         })
                     )
-                    print(f"  Invoked classifier batch {i+1}/{num_batches} ({function_name})")
                 
-                result['classifier_batches_invoked'] = num_batches
+                print(f"  Invoked classifier for {len(summarized_post_ids)} posts ({function_name})")
+                result['classifier_invocations'] = len(summarized_post_ids)
             except Exception as e:
                 print(f"  Warning: Could not invoke classifier Lambda: {e}")
                 result['classifier_error'] = str(e)
+        
+        # AUTO-CHAINING: Check if there are more posts to process
+        # Only auto-chain if we processed a full batch (indicates more work to do)
+        print(f"\nAuto-chain check: post_id={post_id}, posts_processed={posts_processed}, batch_size={batch_size}, force={force}")
+        if not post_id and posts_processed >= batch_size and not force:
+            print("\nChecking for more posts to process...")
+            
+            try:
+                # Quick count of remaining posts without summaries
+                response = table.scan(
+                    FilterExpression='attribute_not_exists(summary) OR summary = :empty',
+                    ExpressionAttributeValues={':empty': ''},
+                    Select='COUNT'
+                )
+                
+                remaining_count = response['Count']
+                
+                # Handle pagination for count
+                while 'LastEvaluatedKey' in response:
+                    response = table.scan(
+                        FilterExpression='attribute_not_exists(summary) OR summary = :empty',
+                        ExpressionAttributeValues={':empty': ''},
+                        Select='COUNT',
+                        ExclusiveStartKey=response['LastEvaluatedKey']
+                    )
+                    remaining_count += response['Count']
+                
+                if remaining_count > 0:
+                    print(f"  Found {remaining_count} more posts without summaries")
+                    print("  Auto-chaining: Invoking summary generator again...")
+                    
+                    lambda_client = boto3.client('lambda')
+                    environment = os.environ.get('ENVIRONMENT', 'production')
+                    summary_function = f"aws-blog-summary-generator:{environment}"
+                    
+                    # Invoke self with same parameters
+                    lambda_client.invoke(
+                        FunctionName=summary_function,
+                        InvocationType='Event',  # Async
+                        Payload=json.dumps({
+                            'batch_size': batch_size,
+                            'force': False,
+                            'table_name': TABLE_NAME
+                        })
+                    )
+                    
+                    print(f"  ✓ Auto-chained to process next batch")
+                    result['auto_chained'] = True
+                    result['remaining_posts'] = remaining_count
+                else:
+                    print("  ✓ No more posts to process")
+                    result['auto_chained'] = False
+                    
+            except Exception as e:
+                print(f"  Warning: Could not check for remaining posts: {e}")
+                result['auto_chain_error'] = str(e)
         
         return {
             'statusCode': 200,

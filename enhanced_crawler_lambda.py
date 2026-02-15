@@ -416,7 +416,7 @@ class BuilderAWSCrawler:
         self.posts_created = 0
         self.posts_needing_summaries = 0
         self.posts_needing_classification = 0
-        self.changed_post_ids = []  # Track post IDs that changed (for Selenium crawler)
+        self.changed_post_ids = set()  # Track post IDs that changed (for Selenium crawler) - use set to avoid duplicates
     
     def get_article_sitemaps(self):
         """Get list of article sitemap URLs from sitemap index"""
@@ -542,7 +542,7 @@ class BuilderAWSCrawler:
             # Build update expression
             if content_changed:
                 # Track this post ID for Selenium crawler
-                self.changed_post_ids.append(post_id)
+                self.changed_post_ids.add(post_id)  # Use add() for set
                 
                 update_expression = '''
                     SET #url = :url,
@@ -742,31 +742,88 @@ def lambda_handler(event, context):
             builder_results = builder_crawler.crawl_all_posts()
             all_results['builder_aws'] = builder_results
             
-            # Invoke Selenium crawler for changed posts (to fetch real authors/content)
-            changed_post_ids = builder_crawler.changed_post_ids
+            # Invoke ECS Selenium crawler for changed posts (to fetch real authors/content)
+            changed_post_ids = list(builder_crawler.changed_post_ids)  # Convert set to list
             if changed_post_ids:
-                print(f"\n{len(changed_post_ids)} Builder.AWS posts changed - invoking Selenium crawler")
+                print(f"\n{len(changed_post_ids)} Builder.AWS posts changed - invoking ECS Selenium crawler")
                 print(f"Changed post IDs: {changed_post_ids[:5]}{'...' if len(changed_post_ids) > 5 else ''}")
                 
                 try:
-                    lambda_client = boto3.client('lambda')
+                    ecs_client = boto3.client('ecs', region_name='us-east-1')
                     
-                    # Invoke Selenium crawler with the list of changed post IDs
-                    # The Selenium crawler will fetch real authors and content for these posts
-                    # and then automatically invoke Summary → Classifier
-                    lambda_client.invoke(
-                        FunctionName='aws-blog-builder-selenium-crawler',  # No alias - ECS task
-                        InvocationType='Event',  # Async invocation
-                        Payload=json.dumps({
-                            'post_ids': changed_post_ids,
-                            'table_name': table_name
-                        })
-                    )
-                    print(f"  ✓ Invoked Selenium crawler for {len(changed_post_ids)} posts")
-                    builder_results['selenium_crawler_invoked'] = True
-                    builder_results['selenium_post_count'] = len(changed_post_ids)
+                    # Determine environment based on table name
+                    environment = 'staging' if '-staging' in table_name else 'production'
+                    
+                    # Batch post IDs to avoid AWS 8192 character limit on container overrides
+                    # Each post ID is ~60 chars, so batch size of 50 = ~3000 chars (safe margin)
+                    batch_size = 50
+                    post_id_batches = [changed_post_ids[i:i + batch_size] for i in range(0, len(changed_post_ids), batch_size)]
+                    
+                    print(f"  Splitting into {len(post_id_batches)} ECS tasks (batch size: {batch_size})")
+                    
+                    task_ids = []
+                    for batch_num, post_id_batch in enumerate(post_id_batches, 1):
+                        print(f"  Starting ECS task {batch_num}/{len(post_id_batches)} ({len(post_id_batch)} posts)...")
+                        
+                        # Run ECS task with the batch of changed post IDs
+                        # The ECS crawler will fetch real authors and content for these posts
+                        # and then automatically invoke Summary → Classifier
+                        response = ecs_client.run_task(
+                            cluster='selenium-crawler-cluster',
+                            taskDefinition='selenium-crawler-task',
+                            launchType='FARGATE',
+                            networkConfiguration={
+                                'awsvpcConfiguration': {
+                                    'subnets': ['subnet-b2a60bed'],
+                                    'securityGroups': ['sg-06c921b4472e87b70'],
+                                    'assignPublicIp': 'ENABLED'
+                                }
+                            },
+                            overrides={
+                                'containerOverrides': [
+                                    {
+                                        'name': 'selenium-crawler',
+                                        'environment': [
+                                            {
+                                                'name': 'POST_IDS',
+                                                'value': ','.join(post_id_batch)
+                                            },
+                                            {
+                                                'name': 'DYNAMODB_TABLE_NAME',
+                                                'value': table_name
+                                            },
+                                            {
+                                                'name': 'ENVIRONMENT',
+                                                'value': environment
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        )
+                        
+                        if response.get('tasks'):
+                            task_arn = response['tasks'][0]['taskArn']
+                            task_id = task_arn.split('/')[-1]
+                            task_ids.append(task_id)
+                            print(f"    ✓ Started ECS task: {task_id}")
+                        else:
+                            print(f"    ✗ Failed to start ECS task")
+                            if response.get('failures'):
+                                print(f"    Failures: {response['failures']}")
+                    
+                    if task_ids:
+                        print(f"  ✓ Started {len(task_ids)} ECS tasks total")
+                        builder_results['selenium_crawler_invoked'] = True
+                        builder_results['selenium_post_count'] = len(changed_post_ids)
+                        builder_results['ecs_task_ids'] = task_ids
+                        builder_results['ecs_task_count'] = len(task_ids)
+                    else:
+                        print(f"  ✗ Failed to start any ECS tasks")
+                        builder_results['selenium_error'] = 'Failed to start ECS tasks'
+                        
                 except Exception as e:
-                    print(f"  Warning: Could not invoke Selenium crawler: {e}")
+                    print(f"  Warning: Could not invoke ECS Selenium crawler: {e}")
                     builder_results['selenium_error'] = str(e)
             else:
                 print(f"\nNo Builder.AWS posts changed - skipping Selenium crawler")
