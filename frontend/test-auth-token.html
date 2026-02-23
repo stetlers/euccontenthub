@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Token Test - Staging</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .warning { color: #ffc107; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 Auth Token Diagnostic - Staging</h1>
+    
+    <div class="test-box">
+        <h2>Authentication Status</h2>
+        <div id="authStatus">Checking...</div>
+    </div>
+    
+    <div class="test-box">
+        <h2>Token Information</h2>
+        <div id="tokenInfo">Checking...</div>
+    </div>
+    
+    <div class="test-box">
+        <h2>Test Crawler Endpoint</h2>
+        <button onclick="testCrawlerEndpoint()">Test /crawl Endpoint</button>
+        <div id="crawlerTest"></div>
+    </div>
+    
+    <div class="test-box">
+        <h2>Actions</h2>
+        <button onclick="refreshToken()">Refresh Page</button>
+        <button onclick="clearAuth()">Clear Auth & Sign Out</button>
+        <button onclick="window.location.href='/auth-staging.html'">Go to Auth Page</button>
+    </div>
+
+    <script src="auth-staging.js"></script>
+    <script>
+        const API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging';
+        
+        function checkAuth() {
+            const statusDiv = document.getElementById('authStatus');
+            const tokenDiv = document.getElementById('tokenInfo');
+            
+            if (!window.authManager) {
+                statusDiv.innerHTML = '<p class="error">❌ authManager not loaded</p>';
+                return;
+            }
+            
+            const isAuth = window.authManager.isAuthenticated();
+            const user = window.authManager.getUser();
+            const token = window.authManager.getIdToken();
+            
+            // Auth status
+            if (isAuth) {
+                statusDiv.innerHTML = `
+                    <p class="success">✅ Authenticated</p>
+                    <p>User: ${user ? user.email : 'Unknown'}</p>
+                `;
+            } else {
+                statusDiv.innerHTML = '<p class="error">❌ Not authenticated</p>';
+            }
+            
+            // Token info
+            if (token) {
+                // Parse JWT to get expiry
+                try {
+                    const parts = token.split('.');
+                    const payload = JSON.parse(atob(parts[1]));
+                    const exp = new Date(payload.exp * 1000);
+                    const now = new Date();
+                    const isExpired = exp < now;
+                    
+                    tokenDiv.innerHTML = `
+                        <p class="success">✅ Token exists</p>
+                        <p>Expires: ${exp.toLocaleString()}</p>
+                        <p class="${isExpired ? 'error' : 'success'}">
+                            ${isExpired ? '❌ Token EXPIRED' : '✅ Token valid'}
+                        </p>
+                        <p>Token preview: ${token.substring(0, 50)}...</p>
+                    `;
+                } catch (e) {
+                    tokenDiv.innerHTML = `
+                        <p class="warning">⚠️ Token exists but couldn't parse</p>
+                        <p>Token preview: ${token.substring(0, 50)}...</p>
+                    `;
+                }
+            } else {
+                tokenDiv.innerHTML = '<p class="error">❌ No token available</p>';
+            }
+        }
+        
+        async function testCrawlerEndpoint() {
+            const resultDiv = document.getElementById('crawlerTest');
+            resultDiv.innerHTML = '<p>Testing...</p>';
+            
+            const token = window.authManager ? window.authManager.getIdToken() : null;
+            
+            if (!token) {
+                resultDiv.innerHTML = '<p class="error">❌ No token available - cannot test</p>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_ENDPOINT}/crawl`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <p class="success">✅ Success! Status: ${response.status}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <p class="error">❌ Failed! Status: ${response.status}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <p class="error">❌ Error: ${error.message}</p>
+                `;
+            }
+        }
+        
+        function refreshToken() {
+            window.location.reload();
+        }
+        
+        function clearAuth() {
+            localStorage.clear();
+            window.location.href = '/';
+        }
+        
+        // Run check on load
+        setTimeout(checkAuth, 500);
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# file: W:\My Documents\Tech Leader\Project Tidyup\crawler_code\bs4\_typing.py
+# hypothesis_version: 6.151.5
+
+['AttributeValueList', 'NavigableString', 'PageElement', 'ResultSet[Tag]', 'Tag']

@@ -20,20 +20,27 @@ from bs4 import BeautifulSoup
 dynamodb = boto3.resource('dynamodb')
 
 # Environment detection for staging support
-def get_table_suffix():
+def get_table_suffix(event=None):
     """
     Determine table suffix based on environment.
     Returns '-staging' for staging environment, empty string for production.
+    
+    Priority:
+    1. Event payload 'environment' field (from API Lambda)
+    2. Environment variable 'ENVIRONMENT'
     """
+    # Check event payload first (passed from API Lambda)
+    if event and isinstance(event, dict):
+        environment = event.get('environment', '')
+        if environment == 'staging':
+            return '-staging'
+    
+    # Fall back to environment variable
     environment = os.environ.get('ENVIRONMENT', 'production')
     return '-staging' if environment == 'staging' else ''
 
-# Get table name with environment suffix
-TABLE_SUFFIX = get_table_suffix()
-TABLE_NAME = f"aws-blog-posts{TABLE_SUFFIX}"
-
-print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
-print(f"Using table: {TABLE_NAME}")
+# Note: TABLE_SUFFIX will be determined per invocation
+# TABLE_NAME will be set in lambda_handler based on event
 
 
 class AWSBlogCrawler:
@@ -704,15 +711,22 @@ def lambda_handler(event, context):
     - max_pages (optional): Limit the number of listing pages to crawl (AWS blog only)
     - table_name (optional): Override the DynamoDB table name
     - source (optional): 'aws-blog', 'builder', or 'all' (default: 'all')
+    - environment (optional): 'staging' or 'production' (determines table suffix)
     """
     
     try:
-        # Get parameters from event or environment
+        # Determine table name based on environment
+        table_suffix = get_table_suffix(event)
+        default_table_name = f"aws-blog-posts{table_suffix}"
+        
+        # Get parameters from event or use defaults
         max_pages = event.get('max_pages') if event else None
-        table_name = event.get('table_name', TABLE_NAME) if event else TABLE_NAME
+        table_name = event.get('table_name', default_table_name) if event else default_table_name
         source = event.get('source', 'all') if event else 'all'
+        environment = event.get('environment', os.environ.get('ENVIRONMENT', 'production')) if event else os.environ.get('ENVIRONMENT', 'production')
         
         print(f"Starting Multi-Source Crawler Lambda")
+        print(f"Environment: {environment}")
         print(f"DynamoDB Table: {table_name}")
         print(f"Source: {source}")
         if max_pages:
@@ -863,7 +877,9 @@ def lambda_handler(event, context):
                         InvocationType='Event',  # Async invocation
                         Payload=json.dumps({
                             'batch_size': batch_size,
-                            'force': False
+                            'force': False,
+                            'table_name': table_name,  # Pass table name to summary Lambda
+                            'environment': environment  # Pass environment to summary Lambda
                         })
                     )
                     print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")

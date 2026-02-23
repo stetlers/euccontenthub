@@ -1,0 +1,171 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.5.1">
+  <diagram name="EUC Crawler Architecture" id="euc-crawler-arch">
+    <mxGraphModel dx="911" dy="615" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#333333;" value="EUC Content Hub - Crawler Architecture (Staging &amp; Production)" vertex="1">
+          <mxGeometry height="40" width="1200" x="100" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-container" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;fillColor=#E6F3FF;strokeColor=#0066CC;fontColor=#0066CC;fontSize=14;" value="STAGING ENVIRONMENT" vertex="1">
+          <mxGeometry height="420" width="620" x="80" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-website" parent="staging-container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" value="staging.awseuccontent.com" vertex="1">
+          <mxGeometry height="40" width="180" x="40" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-api" parent="staging-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#8C4FFF;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" value="API Gateway&#xa;/staging" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-crawler" parent="staging-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Crawler Lambda&#xa;(Enhanced)" vertex="1">
+          <mxGeometry height="50" width="50" x="360" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-summary" parent="staging-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Summary Lambda&#xa;(Bedrock)" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-classifier" parent="staging-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Classifier Lambda&#xa;(Bedrock)" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="staging-dynamodb" parent="staging-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" value="DynamoDB&#xa;aws-blog-posts-staging" vertex="1">
+          <mxGeometry height="60" width="60" x="460" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-container" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;fillColor=#FFF4E6;strokeColor=#FF8C00;fontColor=#FF8C00;fontSize=14;" value="PRODUCTION ENVIRONMENT" vertex="1">
+          <mxGeometry height="420" width="620" x="720" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-website" parent="prod-container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;" value="awseuccontent.com" vertex="1">
+          <mxGeometry height="40" width="180" x="40" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-api" parent="prod-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#8C4FFF;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" value="API Gateway&#xa;/prod" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-crawler" parent="prod-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Crawler Lambda&#xa;(Enhanced)" vertex="1">
+          <mxGeometry height="50" width="50" x="360" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-summary" parent="prod-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Summary Lambda&#xa;(Bedrock)" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-classifier" parent="prod-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" value="Classifier Lambda&#xa;(Bedrock)" vertex="1">
+          <mxGeometry height="50" width="50" x="260" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="prod-dynamodb" parent="prod-container" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" value="DynamoDB&#xa;aws-blog-posts" vertex="1">
+          <mxGeometry height="60" width="60" x="460" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ecs-fargate" parent="1" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=10;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.fargate;" value="ECS Fargate&#xa;Selenium Crawler&#xa;(Shared)" vertex="1">
+          <mxGeometry height="60" width="60" x="670" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="aws-blog" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" value="AWS Blog&#xa;RSS Feed" vertex="1">
+          <mxGeometry height="60" width="100" x="20" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="builder-aws" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" value="Builder.AWS&#xa;Sitemap" vertex="1">
+          <mxGeometry height="60" width="100" x="20" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-web-api" edge="1" parent="1" source="staging-website" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#0066CC;fontSize=9;" target="staging-api" value="Crawl Button">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-web-api" edge="1" parent="1" source="prod-website" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF8C00;fontSize=9;" target="prod-api" value="Crawl Button">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-api-crawler" edge="1" parent="1" source="staging-api" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#0066CC;fontSize=9;" target="staging-crawler" value="environment=staging">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-api-crawler" edge="1" parent="1" source="prod-api" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF8C00;fontSize=9;" target="prod-crawler" value="environment=production">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-crawler-summary" edge="1" parent="1" source="staging-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#0066CC;fontSize=9;" target="staging-summary" value="table_name=&#xa;aws-blog-posts-staging">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-crawler-summary" edge="1" parent="1" source="prod-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF8C00;fontSize=9;" target="prod-summary" value="table_name=&#xa;aws-blog-posts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-summary-classifier" edge="1" parent="1" source="staging-summary" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#0066CC;fontSize=9;" target="staging-classifier" value="table_name=&#xa;aws-blog-posts-staging">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-summary-classifier" edge="1" parent="1" source="prod-summary" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF8C00;fontSize=9;" target="prod-classifier" value="table_name=&#xa;aws-blog-posts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-crawler-db" edge="1" parent="1" source="staging-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="staging-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-summary-db" edge="1" parent="1" source="staging-summary" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="staging-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-classifier-db" edge="1" parent="1" source="staging-classifier" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="staging-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-crawler-db" edge="1" parent="1" source="prod-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="prod-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-summary-db" edge="1" parent="1" source="prod-summary" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="prod-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-prod-classifier-db" edge="1" parent="1" source="prod-classifier" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;dashed=1;" target="prod-dynamodb" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-aws-blog-staging" edge="1" parent="1" source="aws-blog" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#999999;fontSize=9;" target="staging-crawler" value="Crawls">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-aws-blog-prod" edge="1" parent="1" source="aws-blog" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#999999;fontSize=9;" target="prod-crawler" value="Crawls">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-builder-staging" edge="1" parent="1" source="builder-aws" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#999999;fontSize=9;" target="staging-crawler" value="Crawls">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-builder-prod" edge="1" parent="1" source="builder-aws" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#999999;fontSize=9;" target="prod-crawler" value="Crawls">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-staging-crawler-ecs" edge="1" parent="1" source="staging-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#0066CC;fontSize=9;" target="ecs-fargate" value="Invokes for&#xa;Builder.AWS posts">
+          <mxGeometry relative="1" x="-0.1082" y="57" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow-prod-crawler-ecs" edge="1" parent="1" source="prod-crawler" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#FF8C00;fontSize=9;" target="ecs-fargate" value="Invokes for&#xa;Builder.AWS posts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-ecs-staging-db" edge="1" parent="1" source="ecs-fargate" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#0066CC;fontSize=9;dashed=1;" target="staging-dynamodb" value="Writes content&#xa;&amp; authors">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-ecs-prod-db" edge="1" parent="1" source="ecs-fargate" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#FF8C00;fontSize=9;dashed=1;" target="prod-dynamodb" value="Writes content&#xa;&amp; authors">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-container" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=12;" value="Legend" vertex="1">
+          <mxGeometry height="180" width="300" x="80" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-staging" parent="legend-container" style="text;html=1;strokeColor=#0066CC;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;strokeWidth=2;" value="Staging Flow" vertex="1">
+          <mxGeometry height="20" width="100" x="10" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-prod" parent="legend-container" style="text;html=1;strokeColor=#FF8C00;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;strokeWidth=2;" value="Production Flow" vertex="1">
+          <mxGeometry height="20" width="120" x="10" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-data" parent="legend-container" style="text;html=1;strokeColor=#666666;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;dashed=1;" value="Data Write (Dashed)" vertex="1">
+          <mxGeometry height="20" width="140" x="10" y="85" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-invoke" parent="legend-container" style="text;html=1;strokeColor=#666666;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;strokeWidth=2;" value="Lambda Invocation (Solid)" vertex="1">
+          <mxGeometry height="20" width="170" x="10" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-shared" parent="legend-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=1;" value="Shared Resource" vertex="1">
+          <mxGeometry height="20" width="120" x="10" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="features-container" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=12;" value="Key Features" vertex="1">
+          <mxGeometry height="180" width="540" x="400" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-1" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Environment Detection: API Gateway passes environment to all Lambdas" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="35" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-2" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Table Name Propagation: table_name passed through entire chain" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-3" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Data Isolation: Staging writes to aws-blog-posts-staging, Production to aws-blog-posts" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-4" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Auto-Chain: Crawler → Summary → Classifier (automatic invocation)" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-5" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Shared ECS: Single Fargate cluster handles both staging and production Builder.AWS crawls" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="115" as="geometry" />
+        </mxCell>
+        <mxCell id="feature-6" parent="features-container" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;" value="✓ Dual Source: Crawls both AWS Blog (RSS) and Builder.AWS (Sitemap + Selenium)" vertex="1">
+          <mxGeometry height="20" width="520" x="10" y="135" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

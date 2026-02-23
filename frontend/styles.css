@@ -306,6 +306,53 @@ select:hover, .btn-secondary:hover {
     margin-bottom: 12px;
 }
 
+.post-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.cart-btn {
+    background: var(--card-bg);
+    border: 2px solid #ddd;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 8px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    line-height: 1;
+    transition: all 0.3s;
+    flex-shrink: 0;
+}
+
+.cart-btn:hover {
+    transform: scale(1.1);
+    border-color: var(--primary-color);
+    background: var(--primary-color);
+    color: white;
+}
+
+.cart-btn.in-cart {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+    animation: cartPop 0.4s ease-out;
+}
+
+@keyframes cartPop {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+.cart-icon {
+    display: block;
+    font-weight: bold;
+}
+
 .bookmark-btn {
     background: none;
     border: none;
@@ -2016,6 +2063,93 @@ select:hover, .btn-secondary:hover {
     color: #333;
 }
 
+/* Amazon Email Verification Styles */
+.verification-section {
+    background: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+    border: 1px solid #e0e0e0;
+}
+
+.verification-section h3 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.verification-description {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.verification-status {
+    margin-bottom: 15px;
+}
+
+.verification-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 15px;
+    border-radius: 6px;
+    border-left: 4px solid;
+}
+
+.verification-badge.verified {
+    background: #e8f5e9;
+    border-left-color: #4caf50;
+}
+
+.verification-badge.expired {
+    background: #fff3e0;
+    border-left-color: #ff9800;
+}
+
+.verification-badge.unverified {
+    background: #e3f2fd;
+    border-left-color: #2196f3;
+}
+
+.verification-badge.revoked {
+    background: #ffebee;
+    border-left-color: #f44336;
+}
+
+.badge-icon {
+    font-size: 24px;
+    line-height: 1;
+}
+
+.badge-content {
+    flex: 1;
+}
+
+.badge-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.badge-subtitle {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.verification-form {
+    margin-top: 15px;
+}
+
+.verification-form .form-group {
+    margin-bottom: 15px;
+}
+
+.verification-form .btn-primary {
+    width: 100%;
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -2478,4 +2612,152 @@ select:hover, .btn-secondary:hover {
 
 .btn-danger:active {
     background-color: #bd2130;
+}
+
+
+/* ============================================
+   HEADER ALIGNMENT FIX - Feb 23, 2026
+   Ensure title and subtitle center to same point
+   ============================================ */
+.header-content {
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+}
+
+.header-left {
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+}
+
+header h1,
+.header-left h1 {
+    text-align: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 100% !important;
+}
+
+header .subtitle,
+.header-left .subtitle,
+.subtitle {
+    text-align: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 100% !important;
+    max-width: 600px !important;
+}
+
+.header-right {
+    position: absolute !important;
+    top: 20px !important;
+    right: 20px !important;
+    display: flex !important;
+    gap: 12px !important;
+}
+
+@media (max-width: 768px) {
+    .header-right {
+        position: static !important;
+        margin-top: 20px !important;
+        justify-content: center !important;
+    }
+}
+
+
+/* ============================================
+   SERVICE NAME CHANGE BADGE - Feb 23, 2026
+   Compact button with CSS tooltip for renamed services
+   Positioned below zoom button (fixed position)
+   ============================================ */
+.service-name-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    border: 2px solid var(--secondary-color);
+    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+    cursor: help;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    position: fixed;
+    bottom: 24px;
+    right: 80px; /* Position to the left of zoom button */
+    z-index: 999;
+    box-shadow: 0 2px 6px rgba(255, 153, 0, 0.2);
+}
+
+.service-name-btn:hover {
+    transform: translateY(-4px) scale(1.15) rotate(180deg);
+    box-shadow: 0 6px 16px rgba(255, 153, 0, 0.4);
+    border-color: var(--secondary-dark);
+    background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 100%);
+}
+
+.service-name-btn:active {
+    transform: translateY(-1px) scale(0.95) rotate(0deg);
+}
+
+/* CSS Tooltip - Counter-rotate to stay upright */
+.service-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px) rotate(0deg);
+    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+    color: #e65100;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 2px solid var(--secondary-color);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    z-index: 1001;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    pointer-events: none;
+    margin-bottom: 8px;
+}
+
+.service-tooltip strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.875rem;
+}
+
+.service-tooltip em {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.service-name-btn:hover .service-tooltip {
+    visibility: visible;
+    opacity: 1;
+    /* Counter-rotate the tooltip to keep it upright when button rotates */
+    transform: translateX(-50%) translateY(0) rotate(-180deg);
+}
+
+/* Tooltip arrow */
+.service-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--secondary-color);
+}
+
+/* Responsive positioning */
+@media (max-width: 768px) {
+    .service-name-btn {
+        bottom: 16px;
+        right: 68px; /* Adjust for mobile zoom button position */
+    }
 }

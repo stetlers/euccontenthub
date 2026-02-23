@@ -7,6 +7,8 @@ let voterId = null;
 let userBookmarks = []; // Track user's bookmarks
 let currentFilter = 'all'; // Track current filter
 let currentLabelFilters = []; // Track selected label filters (can be multiple)
+let cartManager = null; // Cart manager instance
+let cartUI = null; // Cart UI instance
 
 // Chart instances
 let leaderboardChart = null;
@@ -18,6 +20,9 @@ let topCommentsChart = null;
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
     initializeVoterId();
+    initializeCart();
+    // Wait a bit for authManager to initialize, then update UI
+    setTimeout(updateAuthUI, 100);
     loadPosts();
     loadUserBookmarks(); // Load bookmarks if authenticated
     setupEventListeners();
@@ -26,12 +31,58 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDataDeletionModal();
 });
 
+function updateAuthUI() {
+    // Update UI elements based on authentication state
+    const isAuthenticated = window.authManager && window.authManager.isAuthenticated();
+    
+    console.log('updateAuthUI called, isAuthenticated:', isAuthenticated);
+    
+    // Hide/show crawler button
+    const crawlBtn = document.getElementById('crawlBtn');
+    if (crawlBtn) {
+        crawlBtn.style.display = isAuthenticated ? 'flex' : 'none';
+        console.log('Crawler button display set to:', crawlBtn.style.display);
+    }
+}
+
+// Make it globally accessible
+window.updateAuthUI = updateAuthUI;
+
 function initializeVoterId() {
     // Get or create a unique voter ID (stored in localStorage)
     voterId = localStorage.getItem('voter_id');
     if (!voterId) {
         voterId = 'voter_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         localStorage.setItem('voter_id', voterId);
+    }
+}
+
+function initializeCart() {
+    // Initialize cart manager
+    if (typeof CartManager !== 'undefined') {
+        cartManager = new CartManager(API_ENDPOINT);
+        window.cartManager = cartManager; // Make it globally accessible
+        
+        // Listen for cart changes to update UI
+        cartManager.addListener((event, data) => {
+            console.log('Cart event:', event, data);
+            updateCartButtons();
+            
+            // Show notifications
+            if (event === 'added') {
+                showNotification('Added to cart', 'success');
+            } else if (event === 'removed') {
+                showNotification('Removed from cart', 'success');
+            } else if (event === 'cleared') {
+                showNotification('Cart cleared', 'success');
+            } else if (event === 'error') {
+                showNotification('Cart operation failed', 'error');
+            }
+        });
+        
+        console.log('Cart manager initialized');
+    } else {
+        console.warn('CartManager not loaded');
     }
 }
 
@@ -258,6 +309,12 @@ async function loadPosts() {
         
         // Set initial filter to 'all' and mark it as active
         setFilter('all');
+        
+        // Initialize CartUI after posts are loaded
+        if (cartManager && typeof CartUI !== 'undefined' && !cartUI) {
+            cartUI = new CartUI(cartManager, allPosts);
+            console.log('Cart UI initialized');
+        }
     } catch (err) {
         console.error('Error loading posts:', err);
         console.error('Error details:', err.message, err.stack);
@@ -387,6 +444,8 @@ function renderPosts() {
                 <p>Try adjusting your search or filter criteria</p>
             </div>
         `;
+        // Update service name button even when no results
+        setTimeout(addServiceNameButtonsToCards, 100);
         return;
     }
 
@@ -394,6 +453,9 @@ function renderPosts() {
         const postCard = createPostCard(post);
         postsContainer.appendChild(postCard);
     });
+    
+    // Add service name buttons to cards after rendering
+    setTimeout(addServiceNameButtonsToCards, 100);
 }
 
 function createLabelBadge(label, confidence) {
@@ -442,6 +504,7 @@ function createPostCard(post) {
     const hasVoted = voters.includes(voterId);
     const hasLoved = lovers.includes(voterId);
     const isBookmarked = userBookmarks.includes(post.post_id);
+    const isInCart = cartManager ? cartManager.isInCart(post.post_id) : false;
     
     const commentCount = post.comment_count || 0;
     
@@ -457,13 +520,23 @@ function createPostCard(post) {
             <h2 class="post-title">
                 <a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
             </h2>
-            <button 
-                class="bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" 
-                data-post-id="${post.post_id}"
-                title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this post'}"
-            >
-                <span class="bookmark-icon">${isBookmarked ? '⭐' : '☆'}</span>
-            </button>
+            <div class="post-actions">
+                ${createServiceNameBadge(post)}
+                <button 
+                    class="cart-btn ${isInCart ? 'in-cart' : ''}" 
+                    data-post-id="${post.post_id}"
+                    title="${isInCart ? 'Remove from cart' : 'Add to cart'}"
+                >
+                    <span class="cart-icon">${isInCart ? '✓' : '+'}</span>
+                </button>
+                <button 
+                    class="bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" 
+                    data-post-id="${post.post_id}"
+                    title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this post'}"
+                >
+                    <span class="bookmark-icon">${isBookmarked ? '⭐' : '☆'}</span>
+                </button>
+            </div>
         </div>
         ${createLabelBadge(label, labelConfidence)}
         ${post.summary ? `<p class="post-summary">${escapeHtml(post.summary)}</p>` : ''}
@@ -593,6 +666,12 @@ function createPostCard(post) {
     const bookmarkBtn = card.querySelector('.bookmark-btn');
     if (bookmarkBtn) {
         bookmarkBtn.addEventListener('click', () => handleBookmark(post.post_id, bookmarkBtn));
+    }
+    
+    // Add event listener to cart button
+    const cartBtn = card.querySelector('.cart-btn');
+    if (cartBtn) {
+        cartBtn.addEventListener('click', () => handleCart(post.post_id, cartBtn));
     }
 
     return card;
@@ -734,6 +813,53 @@ async function handleBookmark(postId, button) {
     }
 }
 
+async function handleCart(postId, button) {
+    // Check if cart manager is initialized
+    if (!cartManager) {
+        showNotification('Cart not available', 'error');
+        return;
+    }
+    
+    const isCurrentlyInCart = button.classList.contains('in-cart');
+    
+    try {
+        if (isCurrentlyInCart) {
+            // Remove from cart
+            await cartManager.removeFromCart(postId);
+        } else {
+            // Add to cart
+            await cartManager.addToCart(postId);
+        }
+        
+        // UI will be updated by cart event listener
+        
+    } catch (error) {
+        console.error('Error updating cart:', error);
+        showNotification('Failed to update cart', 'error');
+    }
+}
+
+function updateCartButtons() {
+    // Update all cart buttons to reflect current cart state
+    if (!cartManager) return;
+    
+    const cartButtons = document.querySelectorAll('.cart-btn');
+    cartButtons.forEach(button => {
+        const postId = button.dataset.postId;
+        const isInCart = cartManager.isInCart(postId);
+        
+        if (isInCart) {
+            button.classList.add('in-cart');
+            button.querySelector('.cart-icon').textContent = '✓';
+            button.title = 'Remove from cart';
+        } else {
+            button.classList.remove('in-cart');
+            button.querySelector('.cart-icon').textContent = '+';
+            button.title = 'Add to cart';
+        }
+    });
+}
+
 function createRipple(event, button) {
     const ripple = document.createElement('span');
     ripple.classList.add('ripple');
@@ -850,6 +976,12 @@ function updateStats() {
         if (bookmarkCard) {
             bookmarkCard.style.display = (window.authManager && window.authManager.isAuthenticated()) ? 'block' : 'none';
         }
+    }
+    
+    // Show/hide crawler button based on auth status
+    const crawlBtn = document.getElementById('crawlBtn');
+    if (crawlBtn) {
+        crawlBtn.style.display = (window.authManager && window.authManager.isAuthenticated()) ? 'flex' : 'none';
     }
     
     document.getElementById('needsReviewCount').textContent = needsReviewCount;
@@ -1013,6 +1145,15 @@ async function handleUnresolve(event) {
 
 
 async function handleCrawl() {
+    // Check authentication first
+    if (!window.authManager || !window.authManager.isAuthenticated()) {
+        showNotification('Please sign in to crawl for new posts', 'error');
+        setTimeout(() => {
+            window.location.href = '/auth.html';
+        }, 1500);
+        return;
+    }
+    
     const crawlBtn = document.getElementById('crawlBtn');
     const crawlIcon = crawlBtn.querySelector('.crawl-icon');
     const crawlText = crawlBtn.querySelector('.crawl-text');
@@ -1030,10 +1171,20 @@ async function handleCrawl() {
     
     try {
         console.log('Triggering crawler...');
+        
+        // Get token and validate
+        const token = window.authManager.getIdToken();
+        console.log('Token exists:', !!token);
+        
+        if (!token) {
+            throw new Error('No authentication token available. Please sign out and sign in again.');
+        }
+        
         const response = await fetch(`${API_ENDPOINT}/crawl`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
             }
         });
         
@@ -1484,19 +1635,49 @@ function renderLeaderboardChart() {
 }
 
 // Helper function to get display name from comments or fallback
+// Cache for user display names
+const userDisplayNameCache = {};
+
 function getDisplayNameForUser(userId) {
+    // Check cache first
+    if (userDisplayNameCache[userId]) {
+        return userDisplayNameCache[userId];
+    }
+    
     // Try to find display name from comments
     for (const post of allPosts) {
         const comments = post.comments || [];
         for (const comment of comments) {
             if (comment.voter_id === userId && comment.display_name) {
+                userDisplayNameCache[userId] = comment.display_name;
                 return comment.display_name;
             }
         }
     }
+    
+    // Fetch from profile API asynchronously (won't block, will update on next render)
+    fetchUserDisplayName(userId);
+    
     // Fallback to truncated user ID
     return userId.substring(0, 8) + '...';
 }
+
+async function fetchUserDisplayName(userId) {
+    try {
+        const response = await fetch(`${API_ENDPOINT}/profile/${userId}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.profile && data.profile.display_name) {
+                userDisplayNameCache[userId] = data.profile.display_name;
+                // Re-render charts to update with new display name
+                renderCharts();
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching display name:', error);
+    }
+}
+
 
 function renderRecentBlogsChart() {
     const ctx = document.getElementById('recentBlogsChart');
@@ -2290,5 +2471,62 @@ function setupDataDeletionModal() {
             dataDeletionModal.style.display = 'none';
             document.body.style.overflow = 'auto';
         }
+    });
+}
+
+
+// Service Name Change Badge - Per-card button
+function createServiceNameBadge(post) {
+    if (!window.serviceNameDetector || !window.serviceNameDetector.loaded) return '';
+    
+    const renamed = window.serviceNameDetector.detectRenamedService(post);
+    if (!renamed) return '';
+    
+    // Return empty string - button will be added via JavaScript after card is created
+    return '';
+}
+
+// Add service name buttons to post cards after they're rendered
+function addServiceNameButtonsToCards() {
+    if (!window.serviceNameDetector || !window.serviceNameDetector.loaded) return;
+    
+    const postCards = document.querySelectorAll('.post-card');
+    
+    postCards.forEach(card => {
+        // Skip if button already exists
+        if (card.querySelector('.service-name-btn')) return;
+        
+        const postId = card.dataset.postId;
+        const post = allPosts.find(p => p.post_id === postId);
+        if (!post) return;
+        
+        const renamed = window.serviceNameDetector.detectRenamedService(post);
+        if (!renamed) return;
+        
+        // Create button
+        const button = document.createElement('button');
+        button.className = 'service-name-btn';
+        button.innerHTML = `
+            <span class="service-icon">🔄</span>
+            <span class="service-tooltip">
+                <strong>⚠️ Service Name Change</strong><br>
+                ${escapeHtml(renamed.oldName)}<br>
+                → ${escapeHtml(renamed.newName)}<br>
+                <em>Renamed: ${renamed.renameDate}</em>
+            </span>
+        `;
+        
+        // Add to card (append to body of card, will be positioned via CSS)
+        card.appendChild(button);
+    });
+}
+
+// Initialize service name detector
+if (window.serviceNameDetector) {
+    window.serviceNameDetector.init().then(() => {
+        // Add buttons after posts are loaded
+        setTimeout(addServiceNameButtonsToCards, 1000);
+    }).catch(err => {
+        console.warn('Service name detector initialization failed:', err);
     });
 }

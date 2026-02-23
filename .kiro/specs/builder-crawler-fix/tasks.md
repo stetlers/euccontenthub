@@ -34,12 +34,12 @@
   - [x] 5.4 Update Summary/Classifier invocation to only run for AWS Blog posts
   - [x] 5.5 Copy changes to crawler_code/lambda_function.py
 
-- [ ] 6. Update Selenium crawler
-  - [ ] 6.1 Add `post_ids` parameter to lambda_handler()
-  - [ ] 6.2 Query DynamoDB for URLs if post_ids provided
-  - [ ] 6.3 Crawl only specified posts if post_ids provided
-  - [ ] 6.4 Otherwise use current behavior (crawl all EUC posts)
-  - [ ] 6.5 Deploy to staging ECS task
+- [x] 6. Update Selenium crawler
+  - [x] 6.1 Add `post_ids` parameter to lambda_handler()
+  - [x] 6.2 Query DynamoDB for URLs if post_ids provided
+  - [x] 6.3 Crawl only specified posts if post_ids provided
+  - [x] 6.4 Otherwise use current behavior (crawl all EUC posts)
+  - [ ] 6.5 Build Docker image and deploy to staging Lambda
 
 - [ ] 7. Test complete orchestration in staging
   - [ ] 7.1 Deploy both crawlers to staging

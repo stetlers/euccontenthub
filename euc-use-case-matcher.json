@@ -1,0 +1,271 @@
+{
+  "services": [
+    {
+      "service_name": "Amazon WorkSpaces Personal",
+      "use_cases": [
+        "Persistent desktop streaming",
+        "Full Windows or Linux desktop",
+        "User needs same desktop every time",
+        "Long-term desktop assignments",
+        "Users need to install applications",
+        "Users need to save files locally",
+        "Traditional VDI replacement"
+      ],
+      "persistence": "persistent",
+      "streaming_type": "desktop",
+      "user_profile": "persistent",
+      "best_for": [
+        "Knowledge workers needing consistent desktop",
+        "Developers requiring persistent environments",
+        "Users with personalized desktop configurations",
+        "Long-term desktop assignments (weeks/months/years)"
+      ],
+      "not_suitable_for": [
+        "Task workers needing temporary access",
+        "High user density scenarios",
+        "Application-only streaming",
+        "Short-term access (hours/days)"
+      ],
+      "keywords": ["persistent", "full desktop", "vdi", "traditional", "long-term", "personalized"]
+    },
+    {
+      "service_name": "Amazon WorkSpaces Applications",
+      "previous_names": ["Amazon AppStream 2.0"],
+      "use_cases": [
+        "Non-persistent desktop streaming",
+        "Non-persistent application streaming",
+        "Temporary desktop access",
+        "Application-only delivery",
+        "High user density scenarios",
+        "Short-term access needs"
+      ],
+      "persistence": "non-persistent",
+      "streaming_type": "desktop_and_applications",
+      "user_profile": "non-persistent",
+      "best_for": [
+        "Task workers needing temporary desktops",
+        "Application streaming without full desktop",
+        "High user density (many users, fewer resources)",
+        "Short-term access (hours/days)",
+        "Users who don't need persistent storage",
+        "Cost-optimized scenarios"
+      ],
+      "not_suitable_for": [
+        "Users needing persistent desktops",
+        "Long-term desktop assignments",
+        "Users requiring local file storage",
+        "Scenarios requiring same desktop client as WorkSpaces Personal"
+      ],
+      "keywords": ["non-persistent", "application streaming", "temporary", "task worker", "short-term", "cost-optimized"]
+    },
+    {
+      "service_name": "Amazon WorkSpaces Secure Browser",
+      "previous_names": ["Amazon WorkSpaces Web"],
+      "use_cases": [
+        "Non-persistent secure web browser streaming",
+        "Secure access to internal web applications",
+        "Browser-only access",
+        "Zero-trust web access",
+        "Temporary browser sessions"
+      ],
+      "persistence": "non-persistent",
+      "streaming_type": "browser",
+      "user_profile": "non-persistent",
+      "best_for": [
+        "Secure access to internal web apps",
+        "Contractors needing temporary web access",
+        "Zero-trust browser isolation",
+        "Users only needing web browser",
+        "Simplified access without full desktop"
+      ],
+      "not_suitable_for": [
+        "Users needing full desktop",
+        "Users needing to run desktop applications",
+        "Persistent browser sessions",
+        "Local file storage"
+      ],
+      "keywords": ["browser", "web access", "secure browser", "zero-trust", "web applications", "browser isolation"]
+    },
+    {
+      "service_name": "Amazon WorkSpaces Core",
+      "alternative_names": ["Core Bundle"],
+      "use_cases": [
+        "Infrastructure service for third-party VDI vendors",
+        "Persistent desktops through third-party tooling",
+        "Non-persistent desktops through third-party tooling",
+        "Citrix DaaS deployments",
+        "Omnissa Horizon deployments",
+        "LeoStream deployments"
+      ],
+      "persistence": "both_persistent_and_non_persistent",
+      "streaming_type": "infrastructure",
+      "user_profile": "managed_by_third_party",
+      "best_for": [
+        "Customers using Citrix DaaS",
+        "Customers using Omnissa Horizon",
+        "Customers using LeoStream",
+        "Organizations with existing third-party VDI investments",
+        "Customers needing third-party management tools",
+        "Hybrid deployments (AWS + third-party)"
+      ],
+      "not_suitable_for": [
+        "Customers wanting AWS-native management",
+        "Simple VDI deployments",
+        "Customers without third-party VDI expertise"
+      ],
+      "third_party_vendors": ["Citrix", "Omnissa", "LeoStream"],
+      "keywords": ["infrastructure", "third-party", "citrix", "omnissa", "leostream", "hybrid", "core bundle"]
+    },
+    {
+      "service_name": "Amazon WorkSpaces Core Managed Instances",
+      "abbreviation": "CMI",
+      "use_cases": [
+        "EC2-based service interfaced through WorkSpaces APIs",
+        "Non-persistent desktops using third-party tooling",
+        "Persistent desktops using third-party tooling",
+        "Non-persistent applications using third-party tooling",
+        "Persistent applications using third-party tooling",
+        "Multiple use cases with existing EC2 deployments"
+      ],
+      "persistence": "both_persistent_and_non_persistent",
+      "streaming_type": "desktops_and_applications",
+      "user_profile": "managed_by_third_party",
+      "best_for": [
+        "Customers with multiple use cases",
+        "Customers with existing EC2 deployments",
+        "Organizations using Citrix deployment tooling",
+        "Organizations using Dizzion deployment tooling",
+        "Organizations using LeoStream deployment tooling",
+        "Customers needing flexibility (persistent + non-persistent)",
+        "Preferred option for complex deployments"
+      ],
+      "not_suitable_for": [
+        "Simple single-use-case deployments",
+        "Customers wanting AWS-native management only",
+        "Customers without third-party VDI expertise"
+      ],
+      "third_party_vendors": ["Citrix", "Dizzion", "LeoStream"],
+      "keywords": ["ec2", "managed instances", "cmi", "multiple use cases", "multiple", "flexible", "third-party tooling", "preferred", "existing ec2", "existing deployments", "complex", "both persistent and non-persistent", "desktops and applications", "deployment tooling"]
+    },
+    {
+      "service_name": "Amazon WorkSpaces Pool",
+      "use_cases": [
+        "Non-persistent desktop streaming",
+        "Edge cases where WorkSpaces Applications cannot be used",
+        "Users must have same desktop client as WorkSpaces Personal",
+        "Images must be shared between WorkSpaces Personal and WorkSpaces Pool"
+      ],
+      "persistence": "non-persistent",
+      "streaming_type": "desktop",
+      "user_profile": "non-persistent",
+      "best_for": [
+        "Organizations with mixed WorkSpaces Personal + non-persistent needs",
+        "Scenarios requiring same desktop client across services",
+        "Image sharing between persistent and non-persistent users",
+        "Edge cases not covered by WorkSpaces Applications"
+      ],
+      "not_suitable_for": [
+        "Most non-persistent desktop scenarios (use WorkSpaces Applications instead)",
+        "Application-only streaming",
+        "New deployments without WorkSpaces Personal"
+      ],
+      "important_notes": [
+        "Only use in edge cases",
+        "WorkSpaces Applications is preferred for non-persistent desktops",
+        "Main use case: compatibility with WorkSpaces Personal client/images"
+      ],
+      "keywords": ["non-persistent", "edge case", "pool", "image sharing", "client compatibility"]
+    }
+  ],
+  "decision_tree": {
+    "questions": [
+      {
+        "id": "persistence",
+        "question": "Do users need persistent desktops (same desktop every time)?",
+        "yes": ["Amazon WorkSpaces Personal", "Amazon WorkSpaces Core", "Amazon WorkSpaces Core Managed Instances"],
+        "no": ["Amazon WorkSpaces Applications", "Amazon WorkSpaces Secure Browser", "Amazon WorkSpaces Pool", "Amazon WorkSpaces Core", "Amazon WorkSpaces Core Managed Instances"]
+      },
+      {
+        "id": "third_party",
+        "question": "Are you using third-party VDI vendors (Citrix, Omnissa, LeoStream, Dizzion)?",
+        "yes": ["Amazon WorkSpaces Core", "Amazon WorkSpaces Core Managed Instances"],
+        "no": ["Amazon WorkSpaces Personal", "Amazon WorkSpaces Applications", "Amazon WorkSpaces Secure Browser", "Amazon WorkSpaces Pool"]
+      },
+      {
+        "id": "multiple_use_cases",
+        "question": "Do you have multiple use cases (persistent + non-persistent, desktops + applications)?",
+        "yes": ["Amazon WorkSpaces Core Managed Instances"],
+        "no": ["Amazon WorkSpaces Core", "Amazon WorkSpaces Personal", "Amazon WorkSpaces Applications", "Amazon WorkSpaces Secure Browser", "Amazon WorkSpaces Pool"]
+      },
+      {
+        "id": "existing_ec2",
+        "question": "Do you have existing EC2 deployments you want to integrate?",
+        "yes": ["Amazon WorkSpaces Core Managed Instances"],
+        "no": ["Amazon WorkSpaces Core", "Amazon WorkSpaces Personal", "Amazon WorkSpaces Applications", "Amazon WorkSpaces Secure Browser", "Amazon WorkSpaces Pool"]
+      },
+      {
+        "id": "browser_only",
+        "question": "Do users only need web browser access (no desktop or applications)?",
+        "yes": ["Amazon WorkSpaces Secure Browser"],
+        "no": ["Amazon WorkSpaces Personal", "Amazon WorkSpaces Applications", "Amazon WorkSpaces Pool", "Amazon WorkSpaces Core", "Amazon WorkSpaces Core Managed Instances"]
+      },
+      {
+        "id": "application_only",
+        "question": "Do users only need specific applications (not full desktop)?",
+        "yes": ["Amazon WorkSpaces Applications"],
+        "no": ["Amazon WorkSpaces Personal", "Amazon WorkSpaces Pool", "Amazon WorkSpaces Core", "Amazon WorkSpaces Core Managed Instances"]
+      },
+      {
+        "id": "client_compatibility",
+        "question": "Do you need the same desktop client as WorkSpaces Personal for non-persistent desktops?",
+        "yes": ["Amazon WorkSpaces Pool"],
+        "no": ["Amazon WorkSpaces Applications"]
+      },
+      {
+        "id": "image_sharing",
+        "question": "Do you need to share images between persistent and non-persistent users?",
+        "yes": ["Amazon WorkSpaces Pool"],
+        "no": ["Amazon WorkSpaces Applications"]
+      }
+    ]
+  },
+  "comparison_matrix": {
+    "persistence": {
+      "Amazon WorkSpaces Personal": "Persistent",
+      "Amazon WorkSpaces Applications": "Non-persistent",
+      "Amazon WorkSpaces Secure Browser": "Non-persistent",
+      "Amazon WorkSpaces Core": "Both (via third-party)",
+      "Amazon WorkSpaces Core Managed Instances": "Both (via third-party)",
+      "Amazon WorkSpaces Pool": "Non-persistent"
+    },
+    "streaming_type": {
+      "Amazon WorkSpaces Personal": "Full desktop",
+      "Amazon WorkSpaces Applications": "Desktop and applications",
+      "Amazon WorkSpaces Secure Browser": "Browser only",
+      "Amazon WorkSpaces Core": "Infrastructure (managed by third-party)",
+      "Amazon WorkSpaces Core Managed Instances": "Desktops and applications (managed by third-party)",
+      "Amazon WorkSpaces Pool": "Full desktop"
+    },
+    "management": {
+      "Amazon WorkSpaces Personal": "AWS-native",
+      "Amazon WorkSpaces Applications": "AWS-native",
+      "Amazon WorkSpaces Secure Browser": "AWS-native",
+      "Amazon WorkSpaces Core": "Third-party VDI vendors",
+      "Amazon WorkSpaces Core Managed Instances": "Third-party VDI vendors",
+      "Amazon WorkSpaces Pool": "AWS-native"
+    },
+    "best_use_case": {
+      "Amazon WorkSpaces Personal": "Traditional VDI, persistent desktops",
+      "Amazon WorkSpaces Applications": "Non-persistent desktops/apps, task workers",
+      "Amazon WorkSpaces Secure Browser": "Secure web access only",
+      "Amazon WorkSpaces Core": "Third-party VDI infrastructure",
+      "Amazon WorkSpaces Core Managed Instances": "Multiple use cases with third-party tooling (PREFERRED)",
+      "Amazon WorkSpaces Pool": "Edge cases requiring client/image compatibility"
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "last_updated": "2026-02-21",
+    "notes": "Use-case-based service matcher for EUC Content Hub. Helps users choose the right WorkSpaces service based on their requirements."
+  }
+}

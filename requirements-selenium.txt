@@ -1,0 +1,7 @@
+# Python dependencies for Builder.AWS Selenium Crawler
+
+# AWS SDK
+boto3>=1.26.0
+
+# Selenium for web scraping
+selenium>=4.15.0

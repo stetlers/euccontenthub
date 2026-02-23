@@ -416,7 +416,7 @@ class BuilderAWSCrawler:
         self.posts_created = 0
         self.posts_needing_summaries = 0
         self.posts_needing_classification = 0
-        self.changed_post_ids = []  # Track post IDs that changed (for Selenium crawler)
+        self.changed_post_ids = set()  # Track post IDs that changed (for Selenium crawler) - use set to avoid duplicates
     
     def get_article_sitemaps(self):
         """Get list of article sitemap URLs from sitemap index"""
@@ -542,7 +542,7 @@ class BuilderAWSCrawler:
             # Build update expression
             if content_changed:
                 # Track this post ID for Selenium crawler
-                self.changed_post_ids.append(post_id)
+                self.changed_post_ids.add(post_id)  # Use add() for set
                 
                 update_expression = '''
                     SET #url = :url,
@@ -743,7 +743,7 @@ def lambda_handler(event, context):
             all_results['builder_aws'] = builder_results
             
             # Invoke Selenium crawler for changed posts (to fetch real authors/content)
-            changed_post_ids = builder_crawler.changed_post_ids
+            changed_post_ids = list(builder_crawler.changed_post_ids)  # Convert set to list
             if changed_post_ids:
                 print(f"\n{len(changed_post_ids)} Builder.AWS posts changed - invoking Selenium crawler")
                 print(f"Changed post IDs: {changed_post_ids[:5]}{'...' if len(changed_post_ids) > 5 else ''}")
@@ -758,7 +758,7 @@ def lambda_handler(event, context):
                         FunctionName='aws-blog-builder-selenium-crawler',  # No alias - ECS task
                         InvocationType='Event',  # Async invocation
                         Payload=json.dumps({
-                            'post_ids': changed_post_ids,
+                            'post_ids': list(changed_post_ids),  # Ensure it's a list for JSON
                             'table_name': table_name
                         })
                     )

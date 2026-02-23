@@ -1,0 +1,4 @@
+# file: W:\My Documents\Tech Leader\Project Tidyup\crawler_code\requests\compat.py
+# hypothesis_version: 6.151.5
+
+['.', 'chardet', 'charset_normalizer']

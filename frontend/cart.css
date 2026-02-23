@@ -1,0 +1,476 @@
+/* Cart UI Styles */
+
+/* Floating Cart Button */
+.cart-floating-btn {
+    position: fixed;
+    bottom: 30px;
+    left: 30px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    z-index: 999;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cart-floating-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.cart-floating-btn .cart-icon {
+    font-size: 28px;
+}
+
+.cart-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #ff4757;
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    border: 2px solid white;
+}
+
+/* Cart Panel */
+.cart-panel {
+    position: fixed;
+    top: 0;
+    right: -450px;
+    width: 450px;
+    height: 100vh;
+    background: white;
+    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    transition: right 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.cart-panel.open {
+    right: 0;
+}
+
+.cart-panel.open::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 450px;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: -1;
+}
+
+.cart-panel-header {
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.cart-panel-header h2 {
+    margin: 0;
+    font-size: 24px;
+}
+
+.cart-close-btn {
+    background: none;
+    border: none;
+    font-size: 36px;
+    cursor: pointer;
+    color: white;
+    line-height: 1;
+    padding: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.cart-close-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.cart-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.cart-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #666;
+}
+
+.cart-empty p:first-child {
+    font-size: 48px;
+    margin-bottom: 10px;
+}
+
+.cart-empty-hint {
+    font-size: 14px;
+    color: #999;
+}
+
+.cart-item {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    display: flex;
+    gap: 15px;
+    transition: all 0.2s;
+}
+
+.cart-item:hover {
+    background: #e9ecef;
+    transform: translateX(-5px);
+}
+
+.cart-item-content {
+    flex: 1;
+}
+
+.cart-item-title {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.cart-item-title a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+.cart-item-title a:hover {
+    text-decoration: underline;
+}
+
+.cart-item-meta {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 8px 0;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.cart-item-summary {
+    font-size: 13px;
+    color: #555;
+    margin: 0;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.cart-item-remove {
+    background: #ff4757;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+    line-height: 1;
+}
+
+.cart-item-remove:hover {
+    background: #ee5a6f;
+    transform: scale(1.1);
+}
+
+.cart-panel-footer {
+    padding: 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 10px;
+}
+
+.cart-clear-btn,
+.cart-export-btn {
+    flex: 1;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cart-clear-btn {
+    background: #f8f9fa;
+    color: #666;
+}
+
+.cart-clear-btn:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+.cart-export-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.cart-export-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .cart-panel {
+        width: 100%;
+        right: -100%;
+    }
+    
+    .cart-panel.open::before {
+        right: 100%;
+    }
+    
+    .cart-floating-btn {
+        bottom: 20px;
+        left: 20px;
+        width: 56px;
+        height: 56px;
+    }
+    
+    .cart-floating-btn .cart-icon {
+        font-size: 24px;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .cart-panel {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+    
+    .cart-panel-header {
+        border-bottom-color: #333;
+    }
+    
+    .cart-item {
+        background: #2a2a2a;
+    }
+    
+    .cart-item:hover {
+        background: #333;
+    }
+    
+    .cart-item-title a {
+        color: #8b9cff;
+    }
+    
+    .cart-item-meta,
+    .cart-item-summary {
+        color: #aaa;
+    }
+    
+    .cart-panel-footer {
+        border-top-color: #333;
+    }
+    
+    .cart-clear-btn {
+        background: #2a2a2a;
+        color: #e0e0e0;
+    }
+    
+    .cart-clear-btn:hover {
+        background: #333;
+    }
+    
+    .export-modal {
+        background: #1a1a1a;
+        color: #e0e0e0;
+    }
+    
+    .export-option-btn {
+        background: #2a2a2a;
+        border-color: #444;
+    }
+    
+    .export-option-btn:hover {
+        background: #333;
+        border-color: #667eea;
+    }
+    
+    .export-desc {
+        color: #aaa;
+    }
+}
+
+/* Export Modal */
+.export-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.export-modal {
+    background: white;
+    border-radius: 12px;
+    padding: 30px;
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.export-modal h3 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    color: #333;
+}
+
+.export-modal p {
+    margin: 0 0 20px 0;
+    color: #666;
+}
+
+.export-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.export-option-btn {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.export-option-btn:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+    transform: translateX(5px);
+}
+
+.export-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.export-option-btn > div {
+    flex: 1;
+}
+
+.export-label {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.export-desc {
+    display: block;
+    font-size: 13px;
+    color: #666;
+}
+
+.export-cancel-btn {
+    width: 100%;
+    padding: 12px;
+    background: #f8f9fa;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.export-cancel-btn:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+/* Mobile responsive for export modal */
+@media (max-width: 768px) {
+    .export-modal {
+        padding: 20px;
+        max-width: 90%;
+    }
+    
+    .export-option-btn {
+        padding: 12px;
+    }
+    
+    .export-icon {
+        font-size: 24px;
+    }
+    
+    .export-label {
+        font-size: 14px;
+    }
+    
+    .export-desc {
+        font-size: 12px;
+    }
+}

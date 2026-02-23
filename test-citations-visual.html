@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Docs Citations - Visual Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .chat-message {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .chat-message-bubble {
+            color: #333;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+        
+        /* AWS Documentation Citations */
+        .chat-citations {
+            margin-top: 12px;
+            padding: 12px;
+            background: #f0f8ff;
+            border-left: 4px solid #0073bb;
+            border-radius: 8px;
+        }
+
+        .chat-citations-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #0073bb;
+            margin-bottom: 8px;
+        }
+
+        .chat-citation {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+        }
+
+        .chat-citation:last-child {
+            margin-bottom: 0;
+        }
+
+        .chat-citation-number {
+            flex-shrink: 0;
+            font-weight: 700;
+            color: #0073bb;
+            font-size: 0.8rem;
+        }
+
+        .chat-citation-link {
+            color: #0073bb;
+            text-decoration: none;
+            line-height: 1.4;
+            transition: color 0.3s;
+        }
+
+        .chat-citation-link:hover {
+            color: #005a9c;
+            text-decoration: underline;
+        }
+        
+        h1 {
+            color: #232f3e;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AWS Docs Citations - Visual Test</h1>
+    <p class="subtitle">This shows how AWS documentation citations appear in the chat widget</p>
+    
+    <div class="chat-message">
+        <div class="chat-message-bubble">
+            Great, let's take a look at how to configure Amazon WorkSpaces. The AWS documentation provides a good technical overview of the service, including details on the macOS client application, configuring thin clients, and troubleshooting client issues. To supplement that, I've identified some helpful blog posts that dive into practical configuration examples and best practices.
+        </div>
+        
+        <div class="chat-citations">
+            <div class="chat-citations-title">📚 AWS Documentation References:</div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[1]</span>
+                <a href="https://docs.aws.amazon.com/workspaces/latest/userguide/amazon-workspaces-osx-client.html" target="_blank" class="chat-citation-link">
+                    WorkSpaces macOS client application - Amazon WorkSpaces
+                </a>
+            </div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[2]</span>
+                <a href="https://docs.aws.amazon.com/workspaces/latest/adminguide/access-control-awstc.html" target="_blank" class="chat-citation-link">
+                    Configure WorkSpaces Thin Client - Amazon WorkSpaces
+                </a>
+            </div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[3]</span>
+                <a href="https://docs.aws.amazon.com/workspaces/latest/adminguide/amazon-workspaces.html" target="_blank" class="chat-citation-link">
+                    What is Amazon WorkSpaces? - Amazon WorkSpaces
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="chat-message">
+        <div class="chat-message-bubble">
+            The AWS documentation provides detailed guidance on creating and managing AWS Lambda function URLs, which allow you to assign an HTTPS endpoint to your Lambda function without integrating with other AWS services.
+        </div>
+        
+        <div class="chat-citations">
+            <div class="chat-citations-title">📚 AWS Documentation References:</div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[1]</span>
+                <a href="https://docs.aws.amazon.com/lambda/latest/dg/urls-configuration.html" target="_blank" class="chat-citation-link">
+                    Creating and managing Lambda function URLs - AWS Lambda
+                </a>
+            </div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[2]</span>
+                <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/choosing-the-right-aws-service-for-your-microservice-endpoints/function-urls.html" target="_blank" class="chat-citation-link">
+                    AWS Lambda function URLs - AWS Prescriptive Guidance
+                </a>
+            </div>
+            <div class="chat-citation">
+                <span class="chat-citation-number">[3]</span>
+                <a href="https://docs.aws.amazon.com/lambda/latest/dg/welcome.html" target="_blank" class="chat-citation-link">
+                    What is AWS Lambda? - AWS Lambda
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <p style="text-align: center; color: #666; margin-top: 40px;">
+        ✅ Citations are clickable and open in a new tab<br>
+        ✅ Hover over links to see the underline effect<br>
+        ✅ Clean, professional citation-style format
+    </p>
+</body>
+</html>

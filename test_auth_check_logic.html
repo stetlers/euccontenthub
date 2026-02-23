@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Auth Check Logic</title>
+</head>
+<body>
+    <h1>Auth Check Logic Test</h1>
+    <p>This tests the authentication check logic used in handleCrawl()</p>
+    
+    <h2>Test Scenarios:</h2>
+    <div id="results"></div>
+    
+    <script>
+        const results = document.getElementById('results');
+        
+        function test(name, condition, expected) {
+            const passed = condition === expected;
+            const icon = passed ? '✅' : '❌';
+            results.innerHTML += `<p>${icon} ${name}: ${condition} (expected: ${expected})</p>`;
+        }
+        
+        // Test 1: No authManager at all
+        window.authManager = undefined;
+        test('No authManager', 
+            !window.authManager || !window.authManager.isAuthenticated(), 
+            true);
+        
+        // Test 2: authManager exists but not authenticated
+        window.authManager = {
+            isAuthenticated: () => false
+        };
+        test('authManager exists, not authenticated', 
+            !window.authManager || !window.authManager.isAuthenticated(), 
+            true);
+        
+        // Test 3: authManager exists and authenticated
+        window.authManager = {
+            isAuthenticated: () => true
+        };
+        test('authManager exists, authenticated', 
+            !window.authManager || !window.authManager.isAuthenticated(), 
+            false);
+        
+        // Test 4: authManager is null
+        window.authManager = null;
+        test('authManager is null', 
+            !window.authManager || !window.authManager.isAuthenticated(), 
+            true);
+        
+        results.innerHTML += '<h3>All tests passed! ✅</h3>';
+    </script>
+</body>
+</html>

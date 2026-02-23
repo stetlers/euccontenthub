@@ -5,6 +5,7 @@ const CHAT_API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.co
 class ChatWidget {
     constructor() {
         this.isOpen = false;
+        this.isExpanded = false;
         this.messages = [];
         this.conversationId = this.generateConversationId();
         this.isTyping = false;
@@ -41,7 +42,12 @@ class ChatWidget {
                         <span class="chat-header-icon">🤖</span>
                         <span>EUC Content Finder</span>
                     </div>
-                    <button class="chat-close-btn" id="chatCloseBtn">×</button>
+                    <div class="chat-header-actions">
+                        <button class="chat-expand-btn" id="chatExpandBtn" title="Expand view">
+                            <span class="expand-icon">⛶</span>
+                        </button>
+                        <button class="chat-close-btn" id="chatCloseBtn">×</button>
+                    </div>
                 </div>
             </div>
             <div class="chat-messages" id="chatMessages"></div>
@@ -68,11 +74,13 @@ class ChatWidget {
     attachEventListeners() {
         const chatButton = document.getElementById('chatButton');
         const chatCloseBtn = document.getElementById('chatCloseBtn');
+        const chatExpandBtn = document.getElementById('chatExpandBtn');
         const chatSendBtn = document.getElementById('chatSendBtn');
         const chatInput = document.getElementById('chatInput');
         
         chatButton.addEventListener('click', () => this.toggleChat());
         chatCloseBtn.addEventListener('click', () => this.closeChat());
+        chatExpandBtn.addEventListener('click', () => this.toggleExpanded());
         chatSendBtn.addEventListener('click', () => this.sendMessage());
         
         // Send on Enter (but Shift+Enter for new line)
@@ -118,8 +126,38 @@ class ChatWidget {
     
     closeChat() {
         this.isOpen = false;
+        this.isExpanded = false;
         document.getElementById('chatWindow').classList.remove('open');
+        document.getElementById('chatWindow').classList.remove('expanded');
         document.getElementById('chatButton').classList.remove('open');
+        this.updateExpandButton();
+    }
+    
+    toggleExpanded() {
+        this.isExpanded = !this.isExpanded;
+        const chatWindow = document.getElementById('chatWindow');
+        
+        if (this.isExpanded) {
+            chatWindow.classList.add('expanded');
+        } else {
+            chatWindow.classList.remove('expanded');
+        }
+        
+        this.updateExpandButton();
+        this.scrollToBottom();
+    }
+    
+    updateExpandButton() {
+        const expandBtn = document.getElementById('chatExpandBtn');
+        const expandIcon = expandBtn.querySelector('.expand-icon');
+        
+        if (this.isExpanded) {
+            expandIcon.textContent = '⛶'; // Collapse icon
+            expandBtn.title = 'Collapse view';
+        } else {
+            expandIcon.textContent = '⛶'; // Expand icon
+            expandBtn.title = 'Expand view';
+        }
     }
     
     showWelcomeMessage() {
@@ -132,14 +170,14 @@ class ChatWidget {
                 <div class="chat-welcome-title">What can I help you find today?</div>
                 <div class="chat-welcome-subtitle">Ask me about EUC articles and I'll recommend the best ones for you!</div>
                 <div class="chat-welcome-examples">
-                    <div class="chat-welcome-example" data-query="Tell me about serverless computing">
-                        💡 "Tell me about serverless computing"
+                    <div class="chat-welcome-example" data-query="How do I get started with Amazon WorkSpaces?">
+                        💻 "How do I get started with Amazon WorkSpaces?"
                     </div>
-                    <div class="chat-welcome-example" data-query="How do I get started with containers?">
-                        🐳 "How do I get started with containers?"
+                    <div class="chat-welcome-example" data-query="What are best practices for WorkSpaces security?">
+                        🔒 "What are best practices for WorkSpaces security?"
                     </div>
-                    <div class="chat-welcome-example" data-query="Show me best practices for security">
-                        🔒 "Show me best practices for security"
+                    <div class="chat-welcome-example" data-query="Tell me about AppStream 2.0 deployment">
+                        🚀 "Tell me about AppStream 2.0 deployment"
                     </div>
                 </div>
             </div>
@@ -185,8 +223,13 @@ class ChatWidget {
             // Remove typing indicator
             this.hideTypingIndicator();
             
+            // Auto-expand when response is received
+            if (!this.isExpanded && (response.aws_docs?.length > 0 || response.recommendations?.length > 0)) {
+                this.toggleExpanded();
+            }
+            
             // Add assistant response
-            this.addMessage('assistant', response.response, response.recommendations);
+            this.addMessage('assistant', response.response, response.recommendations, response.aws_docs);
             
         } catch (error) {
             console.error('Chat error:', error);
@@ -215,7 +258,7 @@ class ChatWidget {
         return data;
     }
     
-    addMessage(role, content, recommendations = null) {
+    addMessage(role, content, recommendations = null, awsDocs = null) {
         const messagesContainer = document.getElementById('chatMessages');
         if (!messagesContainer) return;
         
@@ -230,6 +273,28 @@ class ChatWidget {
         
         const avatar = role === 'assistant' ? '🤖' : '👤';
         const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        
+        // Add AWS docs citations to content if present
+        let contentWithCitations = content;
+        let citationsHTML = '';
+        if (awsDocs && awsDocs.length > 0) {
+            citationsHTML = `
+                <div class="chat-citations">
+                    <div class="chat-citations-title">📚 AWS Documentation References:</div>
+                    ${awsDocs.map((doc, index) => `
+                        <div class="chat-citation">
+                            <span class="chat-citation-number">[${index + 1}]</span>
+                            <a href="${doc.url}" target="_blank" class="chat-citation-link">
+                                ${this.escapeHtml(doc.title)}
+                            </a>
+                            <button class="chat-citation-add-btn" onclick="window.chatWidget.copyToClipboard('${this.escapeHtml(doc.title)}', '${doc.url}')" title="Copy to clipboard">
+                                📋
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
         
         let recommendationsHTML = '';
         if (recommendations && recommendations.length > 0) {
@@ -256,7 +321,8 @@ class ChatWidget {
         messageDiv.innerHTML = `
             <div class="chat-message-avatar">${avatar}</div>
             <div class="chat-message-content">
-                <div class="chat-message-bubble">${this.escapeHtml(content)}</div>
+                <div class="chat-message-bubble">${this.escapeHtml(contentWithCitations)}</div>
+                ${citationsHTML}
                 ${recommendationsHTML}
                 ${proposalSuggestionHTML}
                 <div class="chat-message-time">${time}</div>
@@ -267,7 +333,7 @@ class ChatWidget {
         this.scrollToBottom();
         
         // Store message
-        this.messages.push({ role, content, recommendations, timestamp: new Date() });
+        this.messages.push({ role, content, recommendations, awsDocs, timestamp: new Date() });
     }
     
     createRecommendationHTML(rec) {
@@ -275,11 +341,14 @@ class ChatWidget {
         const labelIcon = this.getLabelIcon(rec.label);
         
         return `
-            <div class="chat-recommendation" onclick="window.open('${rec.url}', '_blank')">
+            <div class="chat-recommendation">
                 <div class="chat-recommendation-header">
                     <span class="chat-recommendation-label ${labelClass}">
                         ${labelIcon} ${rec.label}
                     </span>
+                    <button class="chat-recommendation-add-btn" onclick="event.stopPropagation(); window.chatWidget.addToCart('${rec.post_id}')" title="Add to cart">
+                        ➕
+                    </button>
                 </div>
                 <div class="chat-recommendation-title">${this.escapeHtml(rec.title)}</div>
                 <div class="chat-recommendation-summary">${this.escapeHtml(this.truncate(rec.summary, 150))}</div>
@@ -368,6 +437,106 @@ class ChatWidget {
         if (!text) return '';
         if (text.length <= maxLength) return text;
         return text.substring(0, maxLength - 3) + '...';
+    }
+    
+    // ============================================
+    // Cart Integration
+    // ============================================
+    
+    addToCart(postId) {
+        if (!postId) {
+            console.error('No post ID provided');
+            return;
+        }
+        
+        // Try to access cart manager (check both window.cartManager and global cartManager)
+        const cart = window.cartManager || (typeof cartManager !== 'undefined' ? cartManager : null);
+        
+        if (!cart) {
+            console.error('Cart manager not found. window.cartManager:', window.cartManager, 'cartManager:', typeof cartManager);
+            this.showNotification('Cart not available. Please refresh the page.', 'error');
+            return;
+        }
+        
+        // Check if already in cart
+        if (cart.isInCart(postId)) {
+            this.showNotification('Already in cart', 'info');
+            return;
+        }
+        
+        // Add to cart
+        cart.addToCart(postId)
+            .then(() => {
+                this.showNotification('Added to cart!', 'success');
+            })
+            .catch(error => {
+                console.error('Failed to add to cart:', error);
+                this.showNotification('Failed to add to cart', 'error');
+            });
+    }
+    
+    copyToClipboard(title, url) {
+        const text = `${title}\n${url}`;
+        
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text)
+                .then(() => {
+                    this.showNotification('Copied to clipboard!', 'success');
+                })
+                .catch(error => {
+                    console.error('Failed to copy:', error);
+                    this.fallbackCopyToClipboard(text);
+                });
+        } else {
+            this.fallbackCopyToClipboard(text);
+        }
+    }
+    
+    fallbackCopyToClipboard(text) {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        
+        try {
+            document.execCommand('copy');
+            this.showNotification('Copied to clipboard!', 'success');
+        } catch (error) {
+            console.error('Failed to copy:', error);
+            this.showNotification('Failed to copy', 'error');
+        }
+        
+        document.body.removeChild(textarea);
+    }
+    
+    showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `chat-notification chat-notification-${type}`;
+        notification.textContent = message;
+        
+        // Add to chat window
+        const chatWindow = document.getElementById('chatWindow');
+        if (chatWindow) {
+            chatWindow.appendChild(notification);
+            
+            // Trigger animation
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 10);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, 3000);
+        }
     }
 }
 

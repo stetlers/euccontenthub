@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart UI Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            background: #f5f5f5;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .test-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #5568d3;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛒 Cart UI Test Page</h1>
+    
+    <div class="test-section">
+        <h2>Test Instructions</h2>
+        <ol>
+            <li>Open the staging site: <a href="https://staging.awseuccontent.com" target="_blank">https://staging.awseuccontent.com</a></li>
+            <li>Wait for posts to load (2-3 minutes for CloudFront cache to clear)</li>
+            <li>Look for the floating cart button in the bottom-right corner (🛒)</li>
+            <li>Add some posts to cart using the "+" buttons on post cards</li>
+            <li>Check that the cart badge shows the correct count</li>
+            <li>Click the cart button to open the panel</li>
+            <li>Verify all cart items are displayed correctly</li>
+            <li>Test removing individual items</li>
+            <li>Test "Clear All" button</li>
+            <li>Test "Copy to Clipboard" button</li>
+            <li>Test closing the panel (close button, click outside, Escape key)</li>
+        </ol>
+    </div>
+    
+    <div class="test-section">
+        <h2>Expected Behavior</h2>
+        <ul>
+            <li>✅ Floating cart button visible in bottom-right</li>
+            <li>✅ Badge shows count (hidden when empty)</li>
+            <li>✅ Panel slides in from right when button clicked</li>
+            <li>✅ Cart items show: title, author, date, summary</li>
+            <li>✅ Remove button (×) works for each item</li>
+            <li>✅ "Clear All" asks for confirmation</li>
+            <li>✅ "Copy to Clipboard" exports Markdown</li>
+            <li>✅ Close button, click outside, or Escape closes panel</li>
+            <li>✅ Empty state shows when cart is empty</li>
+            <li>✅ Mobile responsive (full-width on mobile)</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>Console Checks</h2>
+        <p>Open browser console (F12) and check for:</p>
+        <ul>
+            <li>✅ "Cart manager initialized" message</li>
+            <li>✅ "Cart UI initialized" message</li>
+            <li>✅ No JavaScript errors</li>
+            <li>✅ Cart events logged when adding/removing items</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>Files Deployed</h2>
+        <ul>
+            <li>✅ cart-ui.js (CartUI class)</li>
+            <li>✅ cart.css (styling)</li>
+            <li>✅ app-staging.js (with CartUI initialization)</li>
+            <li>✅ index-staging.html (with script/link tags)</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>Quick Links</h2>
+        <button class="test-button" onclick="window.open('https://staging.awseuccontent.com', '_blank')">
+            Open Staging Site
+        </button>
+        <button class="test-button" onclick="window.open('https://console.aws.amazon.com/cloudfront/v3/home?region=us-east-1#/distributions/E1IB9VDMV64CQA', '_blank')">
+            CloudFront Console
+        </button>
+        <button class="test-button" onclick="window.open('https://s3.console.aws.amazon.com/s3/buckets/aws-blog-viewer-staging-031421429609', '_blank')">
+            S3 Bucket
+        </button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Troubleshooting</h2>
+        <p><strong>If cart UI doesn't appear:</strong></p>
+        <ol>
+            <li>Wait 2-3 minutes for CloudFront cache to clear</li>
+            <li>Hard refresh the page (Ctrl+Shift+R or Cmd+Shift+R)</li>
+            <li>Check browser console for errors</li>
+            <li>Verify files are in S3 bucket</li>
+            <li>Check CloudFront invalidation status</li>
+        </ol>
+        
+        <p><strong>If cart operations fail:</strong></p>
+        <ul>
+            <li>Cart uses localStorage (API calls are disabled)</li>
+            <li>Check browser console for errors</li>
+            <li>Verify CartManager is initialized</li>
+            <li>Check that posts are loaded (allPosts array)</li>
+        </ul>
+    </div>
+    
+    <div class="test-section">
+        <h2>Deployment Status</h2>
+        <div class="status success">
+            ✅ Deployment completed successfully<br>
+            ✅ CloudFront cache invalidated (ID: IEDF4X9QDADSF6FOR3T4T6CC4R)<br>
+            ⏳ Wait 2-3 minutes for cache to clear
+        </div>
+    </div>
+</body>
+</html>

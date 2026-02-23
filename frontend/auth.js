@@ -92,6 +92,17 @@ class AuthManager {
             // Save session
             this.saveSession(tokens, userInfo);
             
+            // Trigger cart merge if CartManager is available
+            if (window.cartManager && typeof window.cartManager.mergeCartsOnSignIn === 'function') {
+                try {
+                    await window.cartManager.mergeCartsOnSignIn();
+                    console.log('Cart merge completed successfully');
+                } catch (error) {
+                    console.error('Cart merge failed:', error);
+                    // Don't block sign-in if cart merge fails
+                }
+            }
+            
             // Redirect to home
             window.location.href = '/';
             
@@ -288,6 +299,11 @@ class AuthManager {
             document.getElementById('signInBtn').addEventListener('click', () => {
                 this.signIn();
             });
+        }
+        
+        // Trigger app-level auth UI updates
+        if (window.updateAuthUI) {
+            window.updateAuthUI();
         }
     }
     

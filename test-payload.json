@@ -1,0 +1,15 @@
+﻿{
+  "path": "/verify-email/request",
+  "httpMethod": "POST",
+  "headers": {
+    "Authorization": "Bearer test-token"
+  },
+  "body": "{\"amazon_email\": \"stetlers@amazon.com\"}",
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "test-user-123"
+      }
+    }
+  }
+}

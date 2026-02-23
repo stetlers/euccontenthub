@@ -1,0 +1,5 @@
+{
+  "table_name": "aws-blog-posts-staging",
+  "environment": "staging",
+  "batch_size": 50
+}

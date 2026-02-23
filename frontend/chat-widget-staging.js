@@ -5,6 +5,7 @@ const CHAT_API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.co
 class ChatWidget {
     constructor() {
         this.isOpen = false;
+        this.isExpanded = false;
         this.messages = [];
         this.conversationId = this.generateConversationId();
         this.isTyping = false;
@@ -41,7 +42,12 @@ class ChatWidget {
                         <span class="chat-header-icon">🤖</span>
                         <span>EUC Content Finder</span>
                     </div>
-                    <button class="chat-close-btn" id="chatCloseBtn">×</button>
+                    <div class="chat-header-actions">
+                        <button class="chat-expand-btn" id="chatExpandBtn" title="Expand view">
+                            <span class="expand-icon">⛶</span>
+                        </button>
+                        <button class="chat-close-btn" id="chatCloseBtn">×</button>
+                    </div>
                 </div>
             </div>
             <div class="chat-messages" id="chatMessages"></div>
@@ -68,11 +74,13 @@ class ChatWidget {
     attachEventListeners() {
         const chatButton = document.getElementById('chatButton');
         const chatCloseBtn = document.getElementById('chatCloseBtn');
+        const chatExpandBtn = document.getElementById('chatExpandBtn');
         const chatSendBtn = document.getElementById('chatSendBtn');
         const chatInput = document.getElementById('chatInput');
         
         chatButton.addEventListener('click', () => this.toggleChat());
         chatCloseBtn.addEventListener('click', () => this.closeChat());
+        chatExpandBtn.addEventListener('click', () => this.toggleExpanded());
         chatSendBtn.addEventListener('click', () => this.sendMessage());
         
         // Send on Enter (but Shift+Enter for new line)
@@ -118,8 +126,38 @@ class ChatWidget {
     
     closeChat() {
         this.isOpen = false;
+        this.isExpanded = false;
         document.getElementById('chatWindow').classList.remove('open');
+        document.getElementById('chatWindow').classList.remove('expanded');
         document.getElementById('chatButton').classList.remove('open');
+        this.updateExpandButton();
+    }
+    
+    toggleExpanded() {
+        this.isExpanded = !this.isExpanded;
+        const chatWindow = document.getElementById('chatWindow');
+        
+        if (this.isExpanded) {
+            chatWindow.classList.add('expanded');
+        } else {
+            chatWindow.classList.remove('expanded');
+        }
+        
+        this.updateExpandButton();
+        this.scrollToBottom();
+    }
+    
+    updateExpandButton() {
+        const expandBtn = document.getElementById('chatExpandBtn');
+        const expandIcon = expandBtn.querySelector('.expand-icon');
+        
+        if (this.isExpanded) {
+            expandIcon.textContent = '⛶'; // Collapse icon
+            expandBtn.title = 'Collapse view';
+        } else {
+            expandIcon.textContent = '⛶'; // Expand icon
+            expandBtn.title = 'Expand view';
+        }
     }
     
     showWelcomeMessage() {
@@ -185,8 +223,13 @@ class ChatWidget {
             // Remove typing indicator
             this.hideTypingIndicator();
             
+            // Auto-expand when response is received
+            if (!this.isExpanded && (response.aws_docs?.length > 0 || response.recommendations?.length > 0)) {
+                this.toggleExpanded();
+            }
+            
             // Add assistant response
-            this.addMessage('assistant', response.response, response.recommendations);
+            this.addMessage('assistant', response.response, response.recommendations, response.aws_docs);
             
         } catch (error) {
             console.error('Chat error:', error);
@@ -215,7 +258,7 @@ class ChatWidget {
         return data;
     }
     
-    addMessage(role, content, recommendations = null) {
+    addMessage(role, content, recommendations = null, awsDocs = null) {
         const messagesContainer = document.getElementById('chatMessages');
         if (!messagesContainer) return;
         
@@ -230,6 +273,25 @@ class ChatWidget {
         
         const avatar = role === 'assistant' ? '🤖' : '👤';
         const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        
+        // Add AWS docs citations to content if present
+        let contentWithCitations = content;
+        let citationsHTML = '';
+        if (awsDocs && awsDocs.length > 0) {
+            citationsHTML = `
+                <div class="chat-citations">
+                    <div class="chat-citations-title">📚 AWS Documentation References:</div>
+                    ${awsDocs.map((doc, index) => `
+                        <div class="chat-citation">
+                            <span class="chat-citation-number">[${index + 1}]</span>
+                            <a href="${doc.url}" target="_blank" class="chat-citation-link">
+                                ${this.escapeHtml(doc.title)}
+                            </a>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
         
         let recommendationsHTML = '';
         if (recommendations && recommendations.length > 0) {
@@ -256,7 +318,8 @@ class ChatWidget {
         messageDiv.innerHTML = `
             <div class="chat-message-avatar">${avatar}</div>
             <div class="chat-message-content">
-                <div class="chat-message-bubble">${this.escapeHtml(content)}</div>
+                <div class="chat-message-bubble">${this.escapeHtml(contentWithCitations)}</div>
+                ${citationsHTML}
                 ${recommendationsHTML}
                 ${proposalSuggestionHTML}
                 <div class="chat-message-time">${time}</div>
@@ -267,7 +330,7 @@ class ChatWidget {
         this.scrollToBottom();
         
         // Store message
-        this.messages.push({ role, content, recommendations, timestamp: new Date() });
+        this.messages.push({ role, content, recommendations, awsDocs, timestamp: new Date() });
     }
     
     createRecommendationHTML(rec) {

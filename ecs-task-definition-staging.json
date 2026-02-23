@@ -1,0 +1,34 @@
+{
+  "family": "selenium-crawler-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::031421429609:role/selenium-crawler-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::031421429609:role/selenium-crawler-task-role",
+  "containerDefinitions": [
+    {
+      "name": "selenium-crawler",
+      "image": "031421429609.dkr.ecr.us-east-1.amazonaws.com/selenium-crawler:latest",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/selenium-crawler",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "environment": [
+        {
+          "name": "DYNAMODB_TABLE_NAME",
+          "value": "aws-blog-posts-staging"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "value": "staging"
+        }
+      ]
+    }
+  ]
+}

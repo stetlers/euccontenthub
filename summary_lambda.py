@@ -21,13 +21,7 @@ def get_table_suffix():
     environment = os.environ.get('ENVIRONMENT', 'production')
     return '-staging' if environment == 'staging' else ''
 
-# Get table name with environment suffix
-TABLE_SUFFIX = get_table_suffix()
-TABLE_NAME = f"aws-blog-posts{TABLE_SUFFIX}"
-table = dynamodb.Table(TABLE_NAME)
-
 print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
-print(f"Using table: {TABLE_NAME}")
 
 # Bedrock model to use
 MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0'  # Fast and cheap
@@ -128,6 +122,8 @@ def lambda_handler(event, context):
     - post_id (optional): Generate summary for specific post
     - batch_size (optional): Number of posts to process (default: 10)
     - force (optional): Regenerate summaries even if they exist
+    - table_name (optional): Override DynamoDB table name
+    - environment (optional): 'staging' or 'production' (determines table suffix)
     """
     
     try:
@@ -135,6 +131,18 @@ def lambda_handler(event, context):
         post_id = event.get('post_id') if event else None
         batch_size = event.get('batch_size', 10) if event else 10
         force = event.get('force', False) if event else False
+        
+        # Determine table name from event or environment
+        if event and event.get('table_name'):
+            table_name = event['table_name']
+            print(f"Using table from event: {table_name}")
+        else:
+            table_suffix = get_table_suffix()
+            table_name = f"aws-blog-posts{table_suffix}"
+            print(f"Using table from environment: {table_name}")
+        
+        # Use the specified table
+        table = dynamodb.Table(table_name)
         
         print(f"Starting summary generation")
         print(f"DEBUG: Extracted post_id={post_id}, batch_size={batch_size}, force={force}")
@@ -253,8 +261,12 @@ def lambda_handler(event, context):
             try:
                 lambda_client = boto3.client('lambda')
                 
-                # Determine which alias to use based on environment
-                environment = os.environ.get('ENVIRONMENT', 'production')
+                # Determine environment from event or environment variable
+                if event and event.get('environment'):
+                    environment = event['environment']
+                else:
+                    environment = os.environ.get('ENVIRONMENT', 'production')
+                
                 function_name = f"aws-blog-classifier:{environment}"
                 
                 # Invoke classifier once for each post that got a summary
@@ -264,11 +276,14 @@ def lambda_handler(event, context):
                         FunctionName=function_name,
                         InvocationType='Event',  # Async invocation
                         Payload=json.dumps({
-                            'post_id': summarized_post_id
+                            'post_id': summarized_post_id,
+                            'table_name': table_name,  # Pass table name to classifier
+                            'environment': environment  # Pass environment to classifier
                         })
                     )
                 
                 print(f"  Invoked classifier for {len(summarized_post_ids)} posts ({function_name})")
+                print(f"  Using table: {table_name}")
                 result['classifier_invocations'] = len(summarized_post_ids)
             except Exception as e:
                 print(f"  Warning: Could not invoke classifier Lambda: {e}")

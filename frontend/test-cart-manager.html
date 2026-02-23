@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart Manager Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            cursor: pointer;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        #cartDisplay {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        #log {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛒 Cart Manager Test</h1>
+    
+    <div class="test-section">
+        <h2>Cart Status</h2>
+        <div id="cartDisplay">
+            <strong>Cart:</strong> <span id="cartContents">[]</span><br>
+            <strong>Count:</strong> <span id="cartCount">0</span><br>
+            <strong>Auth:</strong> <span id="authStatus">Not authenticated</span>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Operations</h2>
+        <button onclick="testAddToCart()">Add Post 1</button>
+        <button onclick="testAddToCart2()">Add Post 2</button>
+        <button onclick="testAddToCart3()">Add Post 3</button>
+        <button onclick="testAddDuplicate()">Add Duplicate</button>
+        <br>
+        <button onclick="testRemoveFromCart()">Remove Post 1</button>
+        <button onclick="testClearCart()">Clear Cart</button>
+        <br>
+        <button onclick="testLoadCart()">Reload Cart</button>
+        <button onclick="testCleanInvalid()">Clean Invalid</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Event Log</h2>
+        <div id="log"></div>
+    </div>
+    
+    <script src="cart-manager.js"></script>
+    <script>
+        // Mock auth manager for testing
+        window.authManager = {
+            isAuthenticated: () => false,
+            getIdToken: () => null
+        };
+        
+        // Initialize cart manager
+        const API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging';
+        const cartManager = new CartManager(API_ENDPOINT);
+        
+        // Add event listener
+        cartManager.addListener((event, data) => {
+            log(`Event: ${event}`, data);
+            updateDisplay();
+        });
+        
+        // Update display
+        function updateDisplay() {
+            document.getElementById('cartContents').textContent = JSON.stringify(cartManager.getCart());
+            document.getElementById('cartCount').textContent = cartManager.getCartCount();
+            document.getElementById('authStatus').textContent = cartManager.isAuthenticated() ? 'Authenticated' : 'Not authenticated';
+        }
+        
+        // Log function
+        function log(message, data) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const dataStr = data !== undefined ? ` | Data: ${JSON.stringify(data)}` : '';
+            logDiv.innerHTML += `[${timestamp}] ${message}${dataStr}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        // Test functions
+        async function testAddToCart() {
+            try {
+                log('Testing: Add post-1 to cart');
+                const result = await cartManager.addToCart('post-1');
+                log(`Result: ${result ? 'Added' : 'Already in cart'}`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testAddToCart2() {
+            try {
+                log('Testing: Add post-2 to cart');
+                const result = await cartManager.addToCart('post-2');
+                log(`Result: ${result ? 'Added' : 'Already in cart'}`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testAddToCart3() {
+            try {
+                log('Testing: Add post-3 to cart');
+                const result = await cartManager.addToCart('post-3');
+                log(`Result: ${result ? 'Added' : 'Already in cart'}`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testAddDuplicate() {
+            try {
+                log('Testing: Add post-1 again (duplicate)');
+                const result = await cartManager.addToCart('post-1');
+                log(`Result: ${result ? 'Added' : 'Already in cart (expected)'}`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testRemoveFromCart() {
+            try {
+                log('Testing: Remove post-1 from cart');
+                const result = await cartManager.removeFromCart('post-1');
+                log(`Result: ${result ? 'Removed' : 'Not in cart'}`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testClearCart() {
+            try {
+                log('Testing: Clear cart');
+                await cartManager.clearCart();
+                log('Result: Cart cleared');
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testLoadCart() {
+            try {
+                log('Testing: Reload cart from storage');
+                await cartManager.loadCart();
+                log('Result: Cart reloaded');
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        async function testCleanInvalid() {
+            try {
+                log('Testing: Clean invalid posts');
+                const mockPosts = [
+                    { post_id: 'post-1' },
+                    { post_id: 'post-2' }
+                    // post-3 is not in this list, so it's invalid
+                ];
+                const removed = cartManager.cleanInvalidPosts(mockPosts);
+                log(`Result: Removed ${removed} invalid posts`);
+            } catch (error) {
+                log('Error:', error.message);
+            }
+        }
+        
+        // Initial display update
+        updateDisplay();
+        log('Cart Manager initialized');
+        log('Storage: localStorage (not authenticated)');
+    </script>
+</body>
+</html>

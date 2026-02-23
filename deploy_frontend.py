@@ -34,11 +34,20 @@ FRONTEND_FILES = [
     'app.js',
     'auth.js',
     'profile.js',
+    'cart-manager.js',
+    'cart-ui.js',
     'chat-widget.js',
     'chat-widget.css',
     'styles.css',
+    'styles-refined.css',  # Refined theme for staging
     'zoom-mode.js',
-    'zoom-mode.css'
+    'zoom-mode.css',
+    'service-name-detector.js'
+]
+
+# Additional files to deploy (not in frontend/ directory)
+ADDITIONAL_FILES = [
+    'euc-service-name-mapping.json'
 ]
 
 def get_content_type(filename):
@@ -109,6 +118,11 @@ def deploy_frontend(environment):
                 if staging_file.exists():
                     source_filename = 'auth-staging.js'
                     print(f"  ℹ️  Using auth-staging.js for staging")
+            elif filename == 'app.js':
+                staging_file = frontend_dir / 'app-staging.js'
+                if staging_file.exists():
+                    source_filename = 'app-staging.js'
+                    print(f"  ℹ️  Using app-staging.js for staging")
         
         file_path = frontend_dir / source_filename
         
@@ -138,6 +152,40 @@ def deploy_frontend(environment):
             print(f"     Error: {str(e)}")
     
     print(f"\n✅ Uploaded {uploaded_count}/{len(FRONTEND_FILES)} files")
+    
+    # Upload additional files (from root directory)
+    print("\nUploading additional files...")
+    additional_uploaded = 0
+    
+    for filename in ADDITIONAL_FILES:
+        file_path = Path(filename)
+        
+        if not file_path.exists():
+            print(f"  ⚠️  Warning: {filename} not found, skipping")
+            continue
+        
+        try:
+            content_type = get_content_type(filename)
+            print(f"  📤 Uploading {filename}... ", end='', flush=True)
+            
+            s3.upload_file(
+                str(file_path),
+                bucket,
+                filename,
+                ExtraArgs={
+                    'ContentType': content_type,
+                    'CacheControl': 'max-age=300'  # 5 minutes cache
+                }
+            )
+            
+            print("✅")
+            additional_uploaded += 1
+            
+        except Exception as e:
+            print(f"❌")
+            print(f"     Error: {str(e)}")
+    
+    print(f"✅ Uploaded {additional_uploaded}/{len(ADDITIONAL_FILES)} additional files")
     
     # Invalidate CloudFront cache
     print(f"\nInvalidating CloudFront cache...")

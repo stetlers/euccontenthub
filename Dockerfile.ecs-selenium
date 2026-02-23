@@ -1,0 +1,26 @@
+FROM selenium/standalone-chrome:latest
+
+# Switch to root to install packages
+USER root
+
+# Install Python 3 and pip
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements-ecs-selenium.txt /app/
+RUN pip3 install --no-cache-dir -r requirements-ecs-selenium.txt
+
+# Copy crawler code
+COPY ecs_selenium_crawler.py /app/
+
+# Switch back to seluser for security
+USER seluser
+
+# Set entry point
+CMD ["python3", "ecs_selenium_crawler.py"]

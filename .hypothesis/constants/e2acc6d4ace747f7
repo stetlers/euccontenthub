@@ -1,0 +1,4 @@
+# file: W:\My Documents\Tech Leader\Project Tidyup\crawler_code\requests\api.py
+# hypothesis_version: 6.151.5
+
+['allow_redirects', 'delete', 'get', 'head', 'options', 'patch', 'post', 'put']

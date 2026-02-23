@@ -1,0 +1,37 @@
+# Dockerfile for Builder.AWS Selenium Crawler Lambda
+FROM public.ecr.aws/lambda/python:3.11
+
+# Install system dependencies for Chrome
+RUN yum install -y \
+    wget \
+    unzip \
+    gtk3 \
+    libXScrnSaver \
+    xdg-utils \
+    && yum clean all
+
+# Install Chrome
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
+    yum install -y ./google-chrome-stable_current_x86_64.rpm && \
+    rm google-chrome-stable_current_x86_64.rpm
+
+# Install ChromeDriver
+RUN CHROMEDRIVER_VERSION=$(curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE) && \
+    wget https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip && \
+    unzip chromedriver_linux64.zip && \
+    mv chromedriver /usr/local/bin/ && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm chromedriver_linux64.zip
+
+# Verify installations
+RUN google-chrome --version && chromedriver --version
+
+# Copy requirements and install Python dependencies
+COPY requirements-selenium.txt ${LAMBDA_TASK_ROOT}/requirements.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
+
+# Copy function code
+COPY builder_selenium_crawler.py ${LAMBDA_TASK_ROOT}/
+
+# Set the CMD to your handler
+CMD ["builder_selenium_crawler.lambda_handler"]

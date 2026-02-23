@@ -17,6 +17,9 @@ class ProfileManager {
         
         // Set up event listeners
         this.setupEventListeners();
+        
+        // Check for verification callback
+        this.checkVerificationCallback();
     }
     
     createProfileModal() {
@@ -82,6 +85,37 @@ class ProfileManager {
                                 maxlength="50"
                             />
                             <small class="form-help">Your Builder.AWS community username (letters, numbers, _, - only)</small>
+                        </div>
+                        
+                        <!-- Amazon Email Verification Section -->
+                        <div class="verification-section">
+                            <h3>🔐 Amazon Employee Verification</h3>
+                            <p class="verification-description">
+                                Verify your @amazon.com email to gain admin access for content moderation.
+                            </p>
+                            
+                            <div id="verificationStatus" class="verification-status">
+                                <!-- Status will be populated dynamically -->
+                            </div>
+                            
+                            <div id="verificationForm" class="verification-form" style="display: none;">
+                                <div class="form-group">
+                                    <label for="amazonEmail">Amazon Email Address</label>
+                                    <input 
+                                        type="email" 
+                                        id="amazonEmail" 
+                                        class="form-input"
+                                        placeholder="yourname@amazon.com"
+                                    />
+                                    <small class="form-help">Must be a valid @amazon.com email address</small>
+                                </div>
+                                <button id="sendVerificationBtn" class="btn-primary">
+                                    <span class="btn-text">Send Verification Email</span>
+                                    <span class="btn-loading" style="display: none;">
+                                        <span class="spinner-small"></span> Sending...
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                         
                         <div class="profile-stats">
@@ -252,6 +286,12 @@ class ProfileManager {
         if (deleteBtn) {
             deleteBtn.addEventListener('click', () => this.deleteAccount());
         }
+        
+        // Send verification email
+        const sendVerificationBtn = document.getElementById('sendVerificationBtn');
+        if (sendVerificationBtn) {
+            sendVerificationBtn.addEventListener('click', () => this.sendVerificationEmail());
+        }
     }
     
     async openProfile() {
@@ -310,9 +350,136 @@ class ProfileManager {
             document.getElementById('profileVotesCount').textContent = stats.votes_count || 0;
             document.getElementById('profileCommentsCount').textContent = stats.comments_count || 0;
             
+            // Display verification status
+            this.displayVerificationStatus(this.currentProfile);
+            
         } catch (error) {
             console.error('Error loading profile:', error);
             showNotification('Failed to load profile', 'error');
+        }
+    }
+    
+    displayVerificationStatus(profile) {
+        const statusContainer = document.getElementById('verificationStatus');
+        const formContainer = document.getElementById('verificationForm');
+        
+        const isVerified = profile.amazon_verified === true;
+        const expiresAt = profile.amazon_verified_expires_at;
+        const isRevoked = profile.amazon_verification_revoked === true;
+        
+        if (isVerified && !isRevoked && expiresAt) {
+            // Check if expired
+            const expirationDate = new Date(expiresAt);
+            const now = new Date();
+            const isExpired = now >= expirationDate;
+            
+            if (isExpired) {
+                // Expired verification
+                statusContainer.innerHTML = `
+                    <div class="verification-badge expired">
+                        <span class="badge-icon">⚠️</span>
+                        <div class="badge-content">
+                            <div class="badge-title">Verification Expired</div>
+                            <div class="badge-subtitle">Expired on ${this.formatDate(expiresAt)}</div>
+                        </div>
+                    </div>
+                `;
+                formContainer.style.display = 'block';
+            } else {
+                // Valid verification
+                const daysUntilExpiration = Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24));
+                statusContainer.innerHTML = `
+                    <div class="verification-badge verified">
+                        <span class="badge-icon">✓</span>
+                        <div class="badge-content">
+                            <div class="badge-title">Amazon Verified</div>
+                            <div class="badge-subtitle">
+                                ${profile.amazon_email || 'Email verified'}<br>
+                                Expires ${this.formatDate(expiresAt)} (${daysUntilExpiration} days)
+                            </div>
+                        </div>
+                    </div>
+                `;
+                formContainer.style.display = 'none';
+            }
+        } else if (isRevoked) {
+            // Revoked verification
+            statusContainer.innerHTML = `
+                <div class="verification-badge revoked">
+                    <span class="badge-icon">🚫</span>
+                    <div class="badge-content">
+                        <div class="badge-title">Verification Revoked</div>
+                        <div class="badge-subtitle">Contact an administrator for more information</div>
+                    </div>
+                </div>
+            `;
+            formContainer.style.display = 'none';
+        } else {
+            // Not verified
+            statusContainer.innerHTML = `
+                <div class="verification-badge unverified">
+                    <span class="badge-icon">ℹ️</span>
+                    <div class="badge-content">
+                        <div class="badge-title">Not Verified</div>
+                        <div class="badge-subtitle">Verify your Amazon email to gain admin access</div>
+                    </div>
+                </div>
+            `;
+            formContainer.style.display = 'block';
+        }
+    }
+    
+    async sendVerificationEmail() {
+        const emailInput = document.getElementById('amazonEmail');
+        const email = emailInput.value.trim().toLowerCase();
+        
+        // Validation
+        if (!email) {
+            showNotification('Please enter your Amazon email address', 'error');
+            return;
+        }
+        
+        if (!email.endsWith('@amazon.com')) {
+            showNotification('Email must be a valid @amazon.com address', 'error');
+            return;
+        }
+        
+        // Show loading state
+        const sendBtn = document.getElementById('sendVerificationBtn');
+        const btnText = sendBtn.querySelector('.btn-text');
+        const btnLoading = sendBtn.querySelector('.btn-loading');
+        
+        sendBtn.disabled = true;
+        btnText.style.display = 'none';
+        btnLoading.style.display = 'inline-flex';
+        
+        try {
+            const response = await fetch(`${this.apiEndpoint}/verify-email`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.authManager.getIdToken()}`
+                },
+                body: JSON.stringify({
+                    amazon_email: email
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to send verification email');
+            }
+            
+            showNotification('Verification email sent! Check your inbox and click the link to verify.', 'success');
+            emailInput.value = '';
+            
+        } catch (error) {
+            console.error('Error sending verification email:', error);
+            showNotification(error.message || 'Failed to send verification email', 'error');
+        } finally {
+            sendBtn.disabled = false;
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
         }
     }
     
@@ -659,6 +826,64 @@ class ProfileManager {
             });
         } catch {
             return 'Unknown';
+        }
+    }
+    
+    async checkVerificationCallback() {
+        // Check if URL has verification token
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+        
+        if (!token) {
+            return; // No verification callback
+        }
+        
+        console.log('Verification token found in URL, confirming...');
+        
+        try {
+            // Call API to confirm verification
+            const response = await fetch(`${this.apiEndpoint}/verify-email?token=${token}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                // Success! Show notification
+                if (window.showNotification) {
+                    window.showNotification('✅ Email verified successfully! You now have admin access.', 'success');
+                }
+                
+                // Remove token from URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // If user is logged in, refresh their profile to show verified status
+                if (window.authManager && window.authManager.isAuthenticated()) {
+                    setTimeout(() => {
+                        this.openProfile();
+                    }, 1000);
+                }
+            } else {
+                // Error
+                const errorMsg = data.error || 'Verification failed';
+                if (window.showNotification) {
+                    window.showNotification(`❌ ${errorMsg}`, 'error');
+                }
+                
+                // Remove token from URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        } catch (error) {
+            console.error('Error confirming verification:', error);
+            if (window.showNotification) {
+                window.showNotification('❌ Failed to verify email. Please try again.', 'error');
+            }
+            
+            // Remove token from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
         }
     }
 }

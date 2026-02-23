@@ -1,0 +1,141 @@
+{
+  "services": [
+    {
+      "current_name": "Amazon WorkSpaces Applications",
+      "previous_names": ["Amazon AppStream 2.0", "Amazon AppStream"],
+      "service_type": "application_streaming",
+      "description": "Stream desktop applications to users",
+      "keywords": ["appstream", "application streaming", "workspaces applications", "app streaming"],
+      "related_services": ["Amazon WorkSpaces", "Amazon WorkSpaces Thin Client"],
+      "launch_date": "2013-11-21",
+      "rename_date": "2024-11-18",
+      "documentation_url": "https://docs.aws.amazon.com/appstream2/",
+      "notes": "Rebranded from AppStream 2.0 to WorkSpaces Applications in November 2024"
+    },
+    {
+      "current_name": "Amazon WorkSpaces Secure Browser",
+      "previous_names": ["Amazon WorkSpaces Web"],
+      "service_type": "secure_browser",
+      "description": "Secure browser for accessing internal web applications",
+      "keywords": ["workspaces web", "workspaces secure browser", "secure browser", "web access"],
+      "related_services": ["Amazon WorkSpaces", "Amazon WorkSpaces Applications"],
+      "launch_date": "2021-11-18",
+      "rename_date": "2024-11-18",
+      "documentation_url": "https://docs.aws.amazon.com/workspaces-web/",
+      "notes": "Rebranded from WorkSpaces Web to WorkSpaces Secure Browser in November 2024"
+    },
+    {
+      "current_name": "Amazon DCV",
+      "previous_names": ["WorkSpaces Streaming Protocol (WSP)", "NICE DCV"],
+      "service_type": "streaming_protocol",
+      "description": "High-performance remote display protocol",
+      "keywords": ["dcv", "nice dcv", "wsp", "workspaces streaming protocol", "streaming protocol"],
+      "related_services": ["Amazon WorkSpaces", "Amazon WorkSpaces Applications"],
+      "launch_date": "2017-05-01",
+      "rename_date": "2024-11-18",
+      "documentation_url": "https://docs.aws.amazon.com/dcv/",
+      "notes": "Previously known as WSP (WorkSpaces Streaming Protocol), then NICE DCV, now Amazon DCV"
+    },
+    {
+      "current_name": "Amazon WorkSpaces Personal",
+      "previous_names": ["Amazon WorkSpaces"],
+      "service_type": "virtual_desktop",
+      "description": "Managed virtual desktop infrastructure (VDI) - Personal desktops",
+      "keywords": ["workspaces personal", "workspace", "vdi", "virtual desktop", "daas", "desktop as a service", "personal desktop", "workspaces vdi"],
+      "related_services": ["Amazon WorkSpaces Applications", "Amazon WorkSpaces Thin Client", "Amazon WorkSpaces Secure Browser", "Amazon WorkSpaces Core"],
+      "launch_date": "2013-11-25",
+      "rename_date": "2024-11-18",
+      "documentation_url": "https://docs.aws.amazon.com/workspaces/",
+      "notes": "Rebranded from Amazon WorkSpaces to Amazon WorkSpaces Personal in November 2024 to distinguish from WorkSpaces Applications"
+    },
+    {
+      "current_name": "Amazon WorkSpaces Thin Client",
+      "previous_names": [],
+      "service_type": "hardware",
+      "description": "Purpose-built thin client device for WorkSpaces",
+      "keywords": ["thin client", "thinclient", "zero client", "workspaces thin client", "hardware"],
+      "related_services": ["Amazon WorkSpaces", "Amazon WorkSpaces Applications"],
+      "launch_date": "2023-11-27",
+      "rename_date": null,
+      "documentation_url": "https://docs.aws.amazon.com/workspaces-thin-client/",
+      "notes": "Hardware device for accessing WorkSpaces and WorkSpaces Applications"
+    },
+    {
+      "current_name": "Amazon WorkSpaces Core",
+      "previous_names": [],
+      "service_type": "platform",
+      "description": "Platform for building custom virtual desktop solutions",
+      "keywords": ["workspaces core", "core", "custom vdi", "platform"],
+      "related_services": ["Amazon WorkSpaces"],
+      "launch_date": "2024-11-18",
+      "rename_date": null,
+      "documentation_url": "https://docs.aws.amazon.com/workspaces-core/",
+      "notes": "New platform for building customized virtual desktop solutions"
+    },
+    {
+      "current_name": "Amazon WorkDocs",
+      "previous_names": [],
+      "service_type": "collaboration",
+      "description": "Document collaboration and storage",
+      "keywords": ["workdocs", "work docs", "document collaboration", "file sharing"],
+      "related_services": ["Amazon WorkSpaces"],
+      "launch_date": "2015-01-27",
+      "rename_date": null,
+      "documentation_url": "https://docs.aws.amazon.com/workdocs/",
+      "notes": "Document collaboration service"
+    },
+    {
+      "current_name": "Amazon Chime",
+      "previous_names": [],
+      "service_type": "communication",
+      "description": "Video conferencing and communication",
+      "keywords": ["chime", "video conferencing", "meetings", "communication"],
+      "related_services": ["Amazon Connect"],
+      "launch_date": "2017-02-13",
+      "rename_date": null,
+      "documentation_url": "https://docs.aws.amazon.com/chime/",
+      "notes": "Communication and collaboration service"
+    },
+    {
+      "current_name": "Amazon Connect",
+      "previous_names": [],
+      "service_type": "contact_center",
+      "description": "Cloud contact center service",
+      "keywords": ["connect", "contact center", "call center", "customer service"],
+      "related_services": ["Amazon Chime"],
+      "launch_date": "2017-03-28",
+      "rename_date": null,
+      "documentation_url": "https://docs.aws.amazon.com/connect/",
+      "notes": "Contact center service"
+    }
+  ],
+  "service_families": {
+    "workspaces_family": {
+      "name": "Amazon WorkSpaces Family",
+      "description": "Suite of end-user computing services",
+      "services": [
+        "Amazon WorkSpaces Personal",
+        "Amazon WorkSpaces Applications",
+        "Amazon WorkSpaces Secure Browser",
+        "Amazon WorkSpaces Thin Client",
+        "Amazon WorkSpaces Core"
+      ],
+      "keywords": ["workspaces", "euc", "end user computing", "virtual desktop"]
+    },
+    "communication_family": {
+      "name": "Communication & Collaboration",
+      "description": "Services for communication and collaboration",
+      "services": [
+        "Amazon Chime",
+        "Amazon Connect",
+        "Amazon WorkDocs"
+      ],
+      "keywords": ["communication", "collaboration", "meetings", "contact center"]
+    }
+  },
+  "metadata": {
+    "version": "1.1",
+    "last_updated": "2026-02-21",
+    "notes": "Service name mapping for EUC Content Hub. Includes historical names, relationships, and keywords for improved search and content discovery. Updated to include WorkSpaces Personal rename."
+  }
+}

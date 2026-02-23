@@ -21,13 +21,7 @@ def get_table_suffix():
     environment = os.environ.get('ENVIRONMENT', 'production')
     return '-staging' if environment == 'staging' else ''
 
-# Get table name with environment suffix
-TABLE_SUFFIX = get_table_suffix()
-TABLE_NAME = f"aws-blog-posts{TABLE_SUFFIX}"
-table = dynamodb.Table(TABLE_NAME)
-
 print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
-print(f"Using table: {TABLE_NAME}")
 
 # Bedrock model to use
 MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0'
@@ -183,12 +177,26 @@ def lambda_handler(event, context):
     - post_id (optional): Classify specific post
     - batch_size (optional): Number of posts to process (default: 50)
     - force (optional): Reclassify all posts (default: False)
+    - table_name (optional): Override DynamoDB table name
+    - environment (optional): 'staging' or 'production' (determines table suffix)
     """
     
     try:
         post_id = event.get('post_id') if event else None
         batch_size = event.get('batch_size', 50) if event else 50
         force = event.get('force', False) if event else False
+        
+        # Determine table name from event or environment
+        if event and event.get('table_name'):
+            table_name = event['table_name']
+            print(f"Using table from event: {table_name}")
+        else:
+            table_suffix = get_table_suffix()
+            table_name = f"aws-blog-posts{table_suffix}"
+            print(f"Using table from environment: {table_name}")
+        
+        # Use the specified table
+        table = dynamodb.Table(table_name)
         
         print(f"Starting classification")
         print(f"Batch size: {batch_size}")

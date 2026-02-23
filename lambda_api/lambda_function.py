@@ -58,7 +58,7 @@ def cors_headers():
     return {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS'
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
     }
 
 
@@ -287,6 +287,120 @@ def require_auth(func):
     return wrapper
 
 
+def check_admin_authorization(user_id):
+    """
+    Check if user has valid Amazon email verification for admin access
+    
+    Args:
+        user_id: The user's Cognito sub ID
+    
+    Returns:
+        dict: {
+            'authorized': bool,
+            'reason': str (only if not authorized)
+        }
+    """
+    try:
+        # Get user profile from DynamoDB
+        response = profiles_table.get_item(Key={'user_id': user_id})
+        profile = response.get('Item')
+        
+        if not profile:
+            return {
+                'authorized': False,
+                'reason': 'User profile not found'
+            }
+        
+        # Check if user has Amazon verification
+        amazon_verified = profile.get('amazon_verified', False)
+        if not amazon_verified:
+            return {
+                'authorized': False,
+                'reason': 'Amazon email verification required for admin access'
+            }
+        
+        # Check if verification has been revoked
+        verification_revoked = profile.get('amazon_verification_revoked', False)
+        if verification_revoked:
+            return {
+                'authorized': False,
+                'reason': 'Amazon email verification has been revoked'
+            }
+        
+        # Check if verification has expired
+        from datetime import datetime
+        expires_at_str = profile.get('amazon_verified_expires_at')
+        if expires_at_str:
+            try:
+                expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                now = datetime.utcnow()
+                if now >= expires_at:
+                    return {
+                        'authorized': False,
+                        'reason': 'Amazon email verification has expired'
+                    }
+            except Exception as e:
+                print(f"Error parsing expiration date: {e}")
+                return {
+                    'authorized': False,
+                    'reason': 'Invalid verification expiration date'
+                }
+        else:
+            return {
+                'authorized': False,
+                'reason': 'Verification expiration date not set'
+            }
+        
+        # All checks passed
+        return {'authorized': True}
+    
+    except Exception as e:
+        print(f"Error checking admin authorization: {str(e)}")
+        return {
+            'authorized': False,
+            'reason': f'Error checking authorization: {str(e)}'
+        }
+
+
+def require_admin(func):
+    """
+    Decorator to require admin authorization (Amazon email verification)
+    Must be used after @require_auth decorator
+    """
+    @wraps(func)
+    def wrapper(event, *args, **kwargs):
+        # User info should already be in event from @require_auth
+        user_id = event.get('user', {}).get('sub')
+        
+        if not user_id:
+            return {
+                'statusCode': 401,
+                'headers': cors_headers(),
+                'body': json.dumps({
+                    'error': 'Unauthorized',
+                    'message': 'Authentication required'
+                })
+            }
+        
+        # Check admin authorization
+        auth_result = check_admin_authorization(user_id)
+        
+        if not auth_result['authorized']:
+            return {
+                'statusCode': 403,
+                'headers': cors_headers(),
+                'body': json.dumps({
+                    'error': 'Forbidden',
+                    'message': auth_result.get('reason', 'Admin access denied')
+                })
+            }
+        
+        # Authorization passed, call the handler
+        return func(event, *args, **kwargs)
+    
+    return wrapper
+
+
 def lambda_handler(event, context):
     """
     Main Lambda handler
@@ -305,6 +419,12 @@ def lambda_handler(event, context):
     - DELETE /profile - Delete current user's profile and all data (requires auth)
     - GET /profile/activity - Get current user's activity history (requires auth)
     - GET /profile/{id} - Get public profile of a user
+    - POST /verify-email - Request Amazon email verification (requires auth)
+    - GET /verify-email - Confirm email verification with token
+    - GET /cart - Get current user's cart (requires auth)
+    - POST /cart - Add post to cart (requires auth)
+    - DELETE /cart/{post_id} - Remove post from cart (requires auth)
+    - DELETE /cart - Clear all cart items (requires auth)
     """
     
     print(f"Event: {json.dumps(event)}")
@@ -338,11 +458,26 @@ def lambda_handler(event, context):
         if path == '/posts' and http_method == 'GET':
             return get_all_posts(query_parameters)
         elif path == '/crawl' and http_method == 'POST':
-            return trigger_crawler()
+            return trigger_crawler(event)  # Pass event for environment detection
         elif path == '/summaries' and http_method == 'POST':
             return trigger_summary_generation()
+        elif path == '/verify-email' and http_method == 'POST':
+            body = json.loads(event.get('body', '{}'))
+            return request_email_verification(event, body)
+        elif path == '/verify-email' and http_method == 'GET':
+            return confirm_email_verification(event, query_parameters)
         elif path == '/bookmarks' and http_method == 'GET':
             return get_user_bookmarks(event)
+        elif path == '/cart' and http_method == 'GET':
+            return get_cart(event)
+        elif path == '/cart' and http_method == 'POST':
+            body = json.loads(event.get('body', '{}'))
+            return add_to_cart(event, body)
+        elif path == '/cart' and http_method == 'DELETE':
+            return clear_cart(event)
+        elif path.startswith('/cart/') and http_method == 'DELETE':
+            post_id = path_parameters.get('post_id')
+            return remove_from_cart(event, post_id)
         elif path == '/profile' and http_method == 'GET':
             return get_user_profile(event)
         elif path == '/profile' and http_method == 'PUT':
@@ -372,6 +507,9 @@ def lambda_handler(event, context):
             elif http_method == 'POST':
                 body = json.loads(event.get('body', '{}'))
                 return add_comment(event, body)
+            elif http_method == 'DELETE':
+                body = json.loads(event.get('body', '{}'))
+                return delete_comment(event, body)
         elif path.startswith('/posts/') and http_method == 'GET':
             post_id = path_parameters.get('id')
             return get_post_by_id(post_id)
@@ -646,28 +784,42 @@ def resolve_post(post_id, body):
         raise
 
 
-def trigger_crawler():
+@require_auth
+def trigger_crawler(event):
     """
     Trigger both AWS blog and Builder.AWS crawlers
     Builder.AWS crawler uses Selenium to extract real author names
+    
+    Requires authentication - only authenticated users can trigger crawlers
+    
+    Args:
+        event: API Gateway event (to extract stage variables for environment)
     """
     import boto3
     
     try:
         lambda_client = boto3.client('lambda')
         
-        # Invoke AWS blog crawler
+        # Determine environment from stage variables
+        environment = 'production'  # Default
+        if event:
+            stage_variables = event.get('stageVariables', {})
+            env_var = stage_variables.get('environment', '')
+            if env_var == 'staging':
+                environment = 'staging'
+        
+        print(f"Triggering crawler for environment: {environment}")
+        
+        # Invoke crawler for all sources (AWS Blog + Builder.AWS)
+        # Pass environment so crawler knows which table to use
+        # The crawler will automatically invoke ECS for Builder.AWS posts
         lambda_client.invoke(
             FunctionName='aws-blog-crawler',
             InvocationType='Event',
-            Payload=json.dumps({'source': 'aws-blog'})
-        )
-        
-        # Invoke Builder.AWS Selenium crawler (extracts real authors)
-        lambda_client.invoke(
-            FunctionName='aws-blog-builder-selenium-crawler',
-            InvocationType='Event',
-            Payload=json.dumps({})
+            Payload=json.dumps({
+                'source': 'all',
+                'environment': environment  # Pass environment to crawler
+            })
         )
         
         return {
@@ -676,6 +828,7 @@ def trigger_crawler():
             'body': json.dumps({
                 'message': 'Crawlers started successfully',
                 'status': 'running',
+                'environment': environment,
                 'sources': {
                     'aws_blog': 'Crawling with full metadata (5-10 minutes)',
                     'builder_aws': 'Crawling with Selenium - extracting real authors (10-15 minutes)'
@@ -933,6 +1086,81 @@ def add_comment(event, body):
         raise
 
 
+@require_auth
+@require_admin
+def delete_comment(event, body):
+    """
+    Delete a comment from a post
+    Requires authentication and admin authorization (Amazon email verification)
+    
+    Body parameters:
+    - post_id: ID of the post containing the comment
+    - comment_id: ID of the comment to delete
+    """
+    post_id = body.get('post_id')
+    comment_id = body.get('comment_id')
+    
+    if not post_id or not comment_id:
+        return {
+            'statusCode': 400,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'post_id and comment_id are required'})
+        }
+    
+    try:
+        # Get the post
+        response = table.get_item(Key={'post_id': post_id})
+        post = response.get('Item')
+        
+        if not post:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Post not found'})
+            }
+        
+        # Find and remove the comment
+        comments = post.get('comments', [])
+        original_count = len(comments)
+        
+        # Filter out the comment to delete
+        updated_comments = [c for c in comments if c.get('comment_id') != comment_id]
+        
+        if len(updated_comments) == original_count:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Comment not found'})
+            }
+        
+        # Update the post with filtered comments
+        table.update_item(
+            Key={'post_id': post_id},
+            UpdateExpression='SET comments = :comments, comment_count = :count',
+            ExpressionAttributeValues={
+                ':comments': updated_comments,
+                ':count': len(updated_comments)
+            }
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'message': 'Comment deleted successfully',
+                'deleted_comment_id': comment_id
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in delete_comment: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to delete comment', 'message': str(e)})
+        }
+
+
 # ============================================================================
 # User Profile Endpoints
 # ============================================================================
@@ -967,6 +1195,8 @@ def get_user_profile(event):
                 'display_name': display_name,
                 'bio': '',
                 'credly_url': '',
+                'bookmarks': [],
+                'cart': [],
                 'created_at': get_timestamp(),
                 'updated_at': get_timestamp(),
                 'stats': {
@@ -1280,6 +1510,7 @@ def toggle_bookmark(event, body):
                 'email': event['user'].get('email', ''),
                 'display_name': event['user'].get('email', '').split('@')[0],
                 'bookmarks': [],
+                'cart': [],
                 'created_at': get_timestamp(),
                 'updated_at': get_timestamp()
             }
@@ -1515,7 +1746,384 @@ def calculate_user_stats(user_id):
         return {'votes_count': 0, 'loves_count': 0, 'comments_count': 0, 'bookmarks_count': 0}
 
 
+@require_auth
+def get_cart(event):
+    """
+    Get current user's cart
+    Requires authentication
+    
+    Returns:
+    - cart: array of post_ids
+    """
+    user_id = event['user']['sub']
+    
+    try:
+        # Get profile from DynamoDB
+        response = profiles_table.get_item(Key={'user_id': user_id})
+        profile = response.get('Item')
+        
+        # Return empty cart if profile doesn't exist or cart field missing
+        cart = profile.get('cart', []) if profile else []
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({'cart': cart})
+        }
+    
+    except Exception as e:
+        print(f"Error in get_cart: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to retrieve cart'})
+        }
+
+
+@require_auth
+def add_to_cart(event, body):
+    """
+    Add a post to the user's cart
+    Requires authentication
+    
+    Body parameters:
+    - post_id: string (required)
+    
+    Returns:
+    - cart: updated array of post_ids
+    - added: boolean indicating if post was added
+    """
+    user_id = event['user']['sub']
+    post_id = body.get('post_id', '').strip()
+    
+    # Validate post_id
+    if not post_id:
+        return {
+            'statusCode': 400,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'post_id is required'})
+        }
+    
+    # Validate post_id format (alphanumeric, hyphens, underscores)
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', post_id):
+        return {
+            'statusCode': 400,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Invalid post_id format'})
+        }
+    
+    try:
+        # Check if post exists
+        post_response = table.get_item(Key={'post_id': post_id})
+        if 'Item' not in post_response:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Post not found'})
+            }
+        
+        # Get current profile
+        response = profiles_table.get_item(Key={'user_id': user_id})
+        profile = response.get('Item')
+        
+        # Initialize cart if profile doesn't exist or cart field missing
+        if not profile:
+            profile = {
+                'user_id': user_id,
+                'email': event['user'].get('email', ''),
+                'display_name': event['user'].get('email', '').split('@')[0],
+                'bookmarks': [],
+                'cart': [],
+                'created_at': get_timestamp(),
+                'updated_at': get_timestamp()
+            }
+        
+        cart = profile.get('cart', [])
+        
+        # Check cart size limit (max 100 items)
+        if len(cart) >= 100 and post_id not in cart:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Cart limit reached (max 100 items)'})
+            }
+        
+        # Add post_id if not already in cart (prevent duplicates)
+        added = False
+        if post_id not in cart:
+            cart.append(post_id)
+            added = True
+        
+        # Update profile
+        profiles_table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET cart = :cart, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':cart': cart,
+                ':updated': get_timestamp()
+            }
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'cart': cart,
+                'added': added,
+                'message': 'Post added to cart' if added else 'Post already in cart'
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in add_to_cart: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to add to cart'})
+        }
+
+
+@require_auth
+def remove_from_cart(event, post_id):
+    """
+    Remove a specific post from the user's cart
+    Requires authentication
+    
+    Path parameters:
+    - post_id: string (required)
+    
+    Returns:
+    - cart: updated array of post_ids
+    - removed: boolean indicating if post was removed
+    """
+    user_id = event['user']['sub']
+    
+    if not post_id:
+        return {
+            'statusCode': 400,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'post_id is required'})
+        }
+    
+    try:
+        # Get current profile
+        response = profiles_table.get_item(Key={'user_id': user_id})
+        profile = response.get('Item')
+        
+        if not profile:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Profile not found'})
+            }
+        
+        cart = profile.get('cart', [])
+        
+        # Remove post_id if present
+        removed = False
+        if post_id in cart:
+            cart.remove(post_id)
+            removed = True
+        
+        # Update profile
+        profiles_table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET cart = :cart, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':cart': cart,
+                ':updated': get_timestamp()
+            }
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'cart': cart,
+                'removed': removed,
+                'message': 'Post removed from cart' if removed else 'Post not in cart'
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in remove_from_cart: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to remove from cart'})
+        }
+
+
+@require_auth
+def clear_cart(event):
+    """
+    Clear all items from the user's cart
+    Requires authentication
+    
+    Returns:
+    - cart: empty array
+    - cleared: boolean (always true)
+    """
+    user_id = event['user']['sub']
+    
+    try:
+        # Update profile with empty cart
+        profiles_table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET cart = :cart, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':cart': [],
+                ':updated': get_timestamp()
+            }
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'cart': [],
+                'cleared': True,
+                'message': 'Cart cleared successfully'
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in clear_cart: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to clear cart'})
+        }
+
+
 def get_timestamp():
     """Get current timestamp in ISO format"""
     from datetime import datetime
     return datetime.utcnow().isoformat()
+
+
+# ============================================================================
+# Amazon Email Verification Endpoints
+# ============================================================================
+
+@require_auth
+def request_email_verification(event, body):
+    """
+    Request Amazon email verification
+    Invokes the email verification Lambda to send verification email
+    Requires authentication
+    """
+    user_id = event['user']['sub']
+    amazon_email = body.get('amazon_email', '').strip().lower()
+    
+    try:
+        # Validate email format
+        if not amazon_email.endswith('@amazon.com'):
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Must be @amazon.com email'})
+            }
+        
+        # Invoke email verification Lambda
+        lambda_client = boto3.client('lambda', region_name='us-east-1')
+        
+        # Prepare payload for verification Lambda
+        verification_payload = {
+            'path': '/verify-email/request',
+            'httpMethod': 'POST',
+            'headers': {
+                'Authorization': event.get('headers', {}).get('Authorization', '')
+            },
+            'body': json.dumps({'amazon_email': amazon_email}),
+            'requestContext': {
+                'authorizer': {
+                    'claims': {
+                        'sub': user_id
+                    }
+                }
+            }
+        }
+        
+        # Invoke verification Lambda asynchronously
+        response = lambda_client.invoke(
+            FunctionName='amazon-email-verification',
+            InvocationType='RequestResponse',
+            Payload=json.dumps(verification_payload)
+        )
+        
+        # Parse response
+        response_payload = json.loads(response['Payload'].read())
+        
+        # Return the response from verification Lambda
+        return {
+            'statusCode': response_payload.get('statusCode', 200),
+            'headers': cors_headers(),
+            'body': response_payload.get('body', '{}')
+        }
+    
+    except Exception as e:
+        print(f"Error in request_email_verification: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to send verification email', 'message': str(e)})
+        }
+
+
+def confirm_email_verification(event, query_params):
+    """
+    Confirm email verification with token
+    Invokes the email verification Lambda to validate token and update profile
+    Does not require authentication (token is the auth)
+    """
+    token = query_params.get('token', '')
+    
+    try:
+        if not token:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Token is required'})
+            }
+        
+        # Invoke email verification Lambda
+        lambda_client = boto3.client('lambda', region_name='us-east-1')
+        
+        # Prepare payload for verification Lambda
+        verification_payload = {
+            'path': '/verify-email/confirm',
+            'httpMethod': 'GET',
+            'queryStringParameters': {
+                'token': token
+            }
+        }
+        
+        # Invoke verification Lambda synchronously
+        response = lambda_client.invoke(
+            FunctionName='amazon-email-verification',
+            InvocationType='RequestResponse',
+            Payload=json.dumps(verification_payload)
+        )
+        
+        # Parse response
+        response_payload = json.loads(response['Payload'].read())
+        
+        # Return the response from verification Lambda (includes redirect)
+        return {
+            'statusCode': response_payload.get('statusCode', 200),
+            'headers': {
+                **cors_headers(),
+                **response_payload.get('headers', {})
+            },
+            'body': response_payload.get('body', '')
+        }
+    
+    except Exception as e:
+        print(f"Error in confirm_email_verification: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to confirm verification', 'message': str(e)})
+        }
