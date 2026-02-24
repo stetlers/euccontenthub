@@ -1,0 +1,20 @@
+{
+  "priority": "HIGH",
+  "description": "Curated Q&A pairs with authoritative answers for common EUC questions",
+  "update_frequency": "manual",
+  "last_updated": "2024-02-24",
+  "retrieval_weight": 1.0,
+  "content_type": "qa_pairs",
+  "topics": [
+    "workspaces",
+    "workspaces_personal",
+    "appstream",
+    "connect",
+    "euc_overview",
+    "setup_guides",
+    "troubleshooting",
+    "security",
+    "cost_optimization",
+    "migration"
+  ]
+}

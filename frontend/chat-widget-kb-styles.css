@@ -1,0 +1,197 @@
+/* KB-Powered Chat Widget Additional Styles */
+
+/* KB Badge in header */
+.chat-kb-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+/* Character count */
+.chat-char-count {
+    font-size: 11px;
+    color: #95a5a6;
+    text-align: right;
+    padding: 4px 12px 8px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Citations Section */
+.chat-citations {
+    margin-top: 12px;
+    padding: 12px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+    border-left: 3px solid #667eea;
+    border-radius: 8px;
+}
+
+.chat-citations-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chat-citation {
+    background: white;
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.chat-citation:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+
+.chat-citation:last-child {
+    margin-bottom: 0;
+}
+
+.chat-citation-number {
+    display: inline-block;
+    background: #667eea;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 8px;
+}
+
+.chat-citation-source {
+    font-size: 12px;
+    font-weight: 600;
+    color: #34495e;
+    font-family: 'Courier New', monospace;
+}
+
+.chat-citation-content {
+    font-size: 12px;
+    color: #5a6c7d;
+    margin-top: 6px;
+    line-height: 1.5;
+    font-style: italic;
+}
+
+/* Recommendations Section */
+.chat-recommendations {
+    margin-top: 12px;
+}
+
+.chat-recommendations-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chat-recommendation-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: #7f8c8d;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.chat-recommendation-authors,
+.chat-recommendation-date {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Enhanced welcome examples for KB */
+.chat-welcome-example {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 13px;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);
+}
+
+.chat-welcome-example:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* Expanded view adjustments for citations */
+.chat-window.expanded .chat-citations {
+    max-width: 100%;
+}
+
+.chat-window.expanded .chat-citation-content {
+    max-height: none;
+}
+
+/* Mobile responsiveness for citations */
+@media (max-width: 768px) {
+    .chat-citations {
+        padding: 10px;
+    }
+    
+    .chat-citation {
+        padding: 8px;
+    }
+    
+    .chat-citation-content {
+        font-size: 11px;
+    }
+    
+    .chat-kb-badge {
+        font-size: 9px;
+        padding: 2px 5px;
+    }
+}
+
+/* Dark mode support for citations */
+@media (prefers-color-scheme: dark) {
+    .chat-citations {
+        background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+        border-left-color: #667eea;
+    }
+    
+    .chat-citations-title {
+        color: #ecf0f1;
+    }
+    
+    .chat-citation {
+        background: #34495e;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    
+    .chat-citation:hover {
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+    
+    .chat-citation-source {
+        color: #ecf0f1;
+    }
+    
+    .chat-citation-content {
+        color: #bdc3c7;
+    }
+    
+    .chat-recommendations-title {
+        color: #ecf0f1;
+    }
+}

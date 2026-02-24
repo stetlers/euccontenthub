@@ -1,0 +1,19 @@
+{
+  "priority": "HIGH",
+  "description": "Service name mappings and historical names for AWS EUC services",
+  "update_frequency": "manual",
+  "last_updated": "2024-02-24",
+  "retrieval_weight": 0.9,
+  "content_type": "service_mappings",
+  "topics": [
+    "service_renames",
+    "historical_names",
+    "workspaces_personal",
+    "workspaces_applications",
+    "appstream",
+    "workspaces_web",
+    "workspaces_secure_browser",
+    "dcv",
+    "wsp"
+  ]
+}
