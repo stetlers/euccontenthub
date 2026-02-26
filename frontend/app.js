@@ -1,5 +1,8 @@
-// Configuration - Update this with your API Gateway URL after deployment
-const API_ENDPOINT = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod'; // Will be replaced during deployment
+// Configuration - Detect environment and use appropriate API endpoint
+const isStagingEnv = window.location.hostname === 'staging.awseuccontent.com';
+const API_ENDPOINT = isStagingEnv
+    ? 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging'
+    : 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/prod';
 
 let allPosts = [];
 let filteredPosts = [];

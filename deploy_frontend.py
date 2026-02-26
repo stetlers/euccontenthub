@@ -38,6 +38,8 @@ FRONTEND_FILES = [
     'cart-ui.js',
     'chat-widget.js',
     'chat-widget.css',
+    'kb-editor.js',
+    'kb-editor-styles.css',
     'styles.css',
     'styles-refined.css',  # Refined theme for staging
     'zoom-mode.js',

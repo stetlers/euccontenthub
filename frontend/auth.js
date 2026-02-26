@@ -1,11 +1,17 @@
 // Authentication Module for EUC Content Hub
 // Handles Cognito OAuth flow and user session management
 
+// Detect environment based on hostname
+const isStaging = window.location.hostname === 'staging.awseuccontent.com';
+const redirectUri = isStaging 
+    ? 'https://staging.awseuccontent.com/callback'
+    : 'https://awseuccontent.com/callback';
+
 const AUTH_CONFIG = {
     userPoolId: 'us-east-1_MOvNrTnua',
     clientId: '3pv5jf235vj14gu148b9vjt3od',
     domain: 'euc-content-hub.auth.us-east-1.amazoncognito.com',
-    redirectUri: 'https://awseuccontent.com/callback',
+    redirectUri: redirectUri,
     region: 'us-east-1'
 };
 
@@ -254,6 +260,9 @@ class AuthManager {
                             <button class="user-menu-item" id="profileBtn">
                                 <span>👤</span> My Profile
                             </button>
+                            <button class="user-menu-item" id="kbEditorBtn">
+                                <span>📚</span> Edit Knowledge Base
+                            </button>
                             <button class="user-menu-item" id="signOutBtn">
                                 <span>🚪</span> Sign Out
                             </button>
@@ -276,6 +285,21 @@ class AuthManager {
                     if (window.profileManager) {
                         window.profileManager.openProfile();
                     }
+                });
+                
+                // KB Editor button click handler
+                document.getElementById('kbEditorBtn').addEventListener('click', () => {
+                    console.log('KB Editor button clicked');
+                    console.log('window.kbEditor:', window.kbEditor);
+                    if (window.kbEditor) {
+                        console.log('Calling showEditor()');
+                        window.kbEditor.showEditor();
+                    } else {
+                        console.error('window.kbEditor is not defined');
+                    }
+                    // Close the menu
+                    const menu = document.getElementById('userMenu');
+                    if (menu) menu.style.display = 'none';
                 });
                 
                 // Close menu when clicking outside

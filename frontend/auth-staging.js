@@ -254,6 +254,9 @@ class AuthManager {
                             <button class="user-menu-item" id="profileBtn">
                                 <span>👤</span> My Profile
                             </button>
+                            <button class="user-menu-item" id="kbEditorBtn">
+                                <span>📚</span> Edit Knowledge Base
+                            </button>
                             <button class="user-menu-item" id="signOutBtn">
                                 <span>🚪</span> Sign Out
                             </button>
@@ -275,6 +278,15 @@ class AuthManager {
                 document.getElementById('profileBtn').addEventListener('click', () => {
                     if (window.profileManager) {
                         window.profileManager.openProfile();
+                    }
+                });
+                
+                // KB Editor button click handler
+                document.getElementById('kbEditorBtn').addEventListener('click', () => {
+                    if (window.kbEditor) {
+                        window.kbEditor.showEditor();
+                    } else {
+                        console.error('KB Editor not initialized');
                     }
                 });
                 

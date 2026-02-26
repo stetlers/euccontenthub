@@ -2,6 +2,7 @@
 API Lambda Function for Blog Posts Viewer
 Provides REST API to query DynamoDB table
 Includes JWT token validation for protected endpoints
+Includes KB Editor endpoints for community contributions
 """
 
 import json
@@ -12,12 +13,19 @@ import base64
 from functools import wraps
 import threading
 import time
+import uuid
+import hashlib
+from datetime import datetime, timedelta
 
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 
 # Initialize Bedrock Runtime client for comment moderation
 bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
+
+# Initialize S3 and Bedrock Agent clients for KB editor
+s3 = boto3.client('s3')
+bedrock_agent = boto3.client('bedrock-agent', region_name='us-east-1')
 
 # Get table suffix for staging/production isolation
 def get_table_suffix(event=None):
@@ -43,6 +51,26 @@ COGNITO_APP_CLIENT_ID = os.environ.get('COGNITO_APP_CLIENT_ID', '3pv5jf235vj14gu
 
 # Cognito JWKS URL
 JWKS_URL = f'https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json'
+
+# KB Editor configuration
+KB_S3_BUCKET = os.environ.get('KB_S3_BUCKET', 'euc-content-hub-kb-staging')
+KB_ID = os.environ.get('KB_ID', 'MIMYGSK1YU')
+KB_DATA_SOURCE_ID = os.environ.get('KB_DATA_SOURCE_ID', 'XC68GVBFXK')
+RATE_LIMIT_EDITS_PER_HOUR = 5
+
+# KB Document metadata
+KB_DOCUMENTS = {
+    'curated-qa/common-questions.md': {
+        'name': 'Common Questions (Q&A)',
+        'description': 'Frequently asked questions about EUC services',
+        'category': 'Q&A'
+    },
+    'service-mappings/service-renames.md': {
+        'name': 'Service Renames & History',
+        'description': 'Complete history of EUC service name changes',
+        'category': 'Mappings'
+    }
+}
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -425,17 +453,28 @@ def lambda_handler(event, context):
     - POST /cart - Add post to cart (requires auth)
     - DELETE /cart/{post_id} - Remove post from cart (requires auth)
     - DELETE /cart - Clear all cart items (requires auth)
+    - GET /kb-documents - List KB documents (requires auth)
+    - GET /kb-document/{document_id} - Get KB document content (requires auth)
+    - PUT /kb-document/{document_id} - Update KB document (requires auth)
+    - GET /kb-ingestion-status/{job_id} - Get ingestion status (requires auth)
+    - GET /kb-contributors - Get contributor leaderboard (requires auth)
+    - GET /kb-my-contributions - Get user's contributions (requires auth)
     """
     
     print(f"Event: {json.dumps(event)}")
     
     # Initialize tables with correct suffix for this request
     global table, profiles_table, TABLE_NAME, PROFILES_TABLE_NAME
+    global kb_edit_history_table, kb_contributor_stats_table
     table_suffix = get_table_suffix(event)
     TABLE_NAME = f'aws-blog-posts{table_suffix}'
     PROFILES_TABLE_NAME = f'euc-user-profiles{table_suffix}'
     table = dynamodb.Table(TABLE_NAME)
     profiles_table = dynamodb.Table(PROFILES_TABLE_NAME)
+    
+    # Initialize KB editor tables
+    kb_edit_history_table = dynamodb.Table(f'kb-edit-history{table_suffix}')
+    kb_contributor_stats_table = dynamodb.Table(f'kb-contributor-stats{table_suffix}')
     
     print(f"Using tables: {TABLE_NAME}, {PROFILES_TABLE_NAME}")
     
@@ -513,6 +552,23 @@ def lambda_handler(event, context):
         elif path.startswith('/posts/') and http_method == 'GET':
             post_id = path_parameters.get('id')
             return get_post_by_id(post_id)
+        # KB Editor endpoints
+        elif path == '/kb-documents' and http_method == 'GET':
+            return handle_get_kb_documents(event)
+        elif path.startswith('/kb-document/') and not path.endswith('/kb-document/') and http_method == 'GET':
+            document_id = path.split('/')[-1]
+            return handle_get_kb_document(event, document_id)
+        elif path.startswith('/kb-document/') and not path.endswith('/kb-document/') and http_method == 'PUT':
+            document_id = path.split('/')[-1]
+            body = json.loads(event.get('body', '{}'))
+            return handle_update_kb_document(event, document_id, body)
+        elif path == '/kb-contributors' and http_method == 'GET':
+            return handle_get_kb_contributors(event)
+        elif path == '/kb-my-contributions' and http_method == 'GET':
+            return handle_get_my_contributions(event)
+        elif path.startswith('/kb-ingestion-status/') and http_method == 'GET':
+            job_id = path.split('/')[-1]
+            return handle_get_ingestion_status(event, job_id)
         else:
             return {
                 'statusCode': 404,
@@ -2126,4 +2182,420 @@ def confirm_email_verification(event, query_params):
             'statusCode': 500,
             'headers': cors_headers(),
             'body': json.dumps({'error': 'Failed to confirm verification', 'message': str(e)})
+        }
+
+
+# ============================================================================
+# KB EDITOR ENDPOINTS
+# ============================================================================
+
+# KB Configuration
+KB_S3_BUCKET = 'euc-content-hub-kb-staging'
+KB_ID = 'MIMYGSK1YU'
+KB_DATA_SOURCE_ID = 'XC68GVBFXK'
+
+# KB Documents metadata
+KB_DOCUMENTS = [
+    {
+        'id': 'euc-qa-pairs',
+        'name': 'EUC Q&A Pairs',
+        'description': 'Common questions and answers about AWS EUC services',
+        'category': 'Q&A',
+        's3_key': 'curated-qa/common-questions.md',
+        'question_count': 50
+    },
+    {
+        'id': 'euc-service-mappings',
+        'name': 'EUC Service Mappings',
+        'description': 'Mappings between EUC services and AWS services',
+        'category': 'Reference',
+        's3_key': 'service-mappings/service-renames.md',
+        'service_count': 25
+    }
+]
+
+@require_auth
+def handle_get_kb_documents(event):
+    """GET /kb-documents - List all KB documents"""
+    try:
+        s3 = boto3.client('s3')
+        
+        # Enrich documents with S3 metadata
+        enriched_docs = []
+        for doc in KB_DOCUMENTS:
+            try:
+                # Get S3 object metadata
+                response = s3.head_object(
+                    Bucket=KB_S3_BUCKET,
+                    Key=doc['s3_key']
+                )
+                doc_copy = doc.copy()
+                doc_copy['size'] = response['ContentLength']
+                doc_copy['last_modified'] = response['LastModified'].isoformat()
+                enriched_docs.append(doc_copy)
+            except Exception as e:
+                print(f"Error getting metadata for {doc['id']}: {str(e)}")
+                # Include document even if metadata fetch fails
+                doc_copy = doc.copy()
+                doc_copy['size'] = 0
+                doc_copy['last_modified'] = None
+                enriched_docs.append(doc_copy)
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'documents': enriched_docs
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_get_kb_documents: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to load documents', 'message': str(e)})
+        }
+
+@require_auth
+def handle_get_kb_document(event, document_id):
+    """GET /kb-document/{document_id} - Get KB document content"""
+    try:
+        # Find document metadata
+        doc_meta = next((d for d in KB_DOCUMENTS if d['id'] == document_id), None)
+        if not doc_meta:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Document not found'})
+            }
+        
+        # Get document content from S3
+        s3 = boto3.client('s3')
+        response = s3.get_object(
+            Bucket=KB_S3_BUCKET,
+            Key=doc_meta['s3_key']
+        )
+        content = response['Body'].read().decode('utf-8')
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                **doc_meta,
+                'content': content,
+                'size': len(content),
+                'line_count': content.count('\n') + 1
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_get_kb_document: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to load document', 'message': str(e)})
+        }
+
+@require_auth
+def handle_update_kb_document(event, document_id, body):
+    """PUT /kb-document/{document_id} - Update KB document"""
+    try:
+        import uuid
+        import hashlib
+        from datetime import datetime
+        
+        user = event['user']
+        user_id = user['sub']
+        table_suffix = get_table_suffix(event)
+        
+        # Validate request
+        new_content = body.get('content')
+        change_comment = body.get('change_comment', '').strip()
+        
+        if not new_content:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Content is required'})
+            }
+        
+        if not change_comment or len(change_comment) < 10:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Change comment must be at least 10 characters'})
+            }
+        
+        if len(change_comment) > 500:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Change comment must be less than 500 characters'})
+            }
+        
+        # Find document metadata
+        doc_meta = next((d for d in KB_DOCUMENTS if d['id'] == document_id), None)
+        if not doc_meta:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'Document not found'})
+            }
+        
+        # Get current content from S3
+        s3 = boto3.client('s3')
+        try:
+            response = s3.get_object(
+                Bucket=KB_S3_BUCKET,
+                Key=doc_meta['s3_key']
+            )
+            old_content = response['Body'].read().decode('utf-8')
+        except s3.exceptions.NoSuchKey:
+            old_content = ''
+        
+        # Calculate content hashes
+        old_hash = hashlib.sha256(old_content.encode()).hexdigest()
+        new_hash = hashlib.sha256(new_content.encode()).hexdigest()
+        
+        # Check if content actually changed
+        if old_hash == new_hash:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({'error': 'No changes detected'})
+            }
+        
+        # Calculate line changes
+        old_lines = old_content.split('\n')
+        new_lines = new_content.split('\n')
+        lines_added = max(0, len(new_lines) - len(old_lines))
+        lines_removed = max(0, len(old_lines) - len(new_lines))
+        
+        # Upload new content to S3
+        s3.put_object(
+            Bucket=KB_S3_BUCKET,
+            Key=doc_meta['s3_key'],
+            Body=new_content.encode('utf-8'),
+            ContentType='text/plain'
+        )
+        
+        # Get S3 version ID
+        response = s3.head_object(
+            Bucket=KB_S3_BUCKET,
+            Key=doc_meta['s3_key']
+        )
+        version_id = response.get('VersionId', 'unknown')
+        
+        # Record edit in DynamoDB
+        edit_history_table = dynamodb.Table(f'kb-edit-history{table_suffix}')
+        edit_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow().isoformat()
+        
+        edit_history_table.put_item(
+            Item={
+                'edit_id': edit_id,
+                'user_id': user_id,
+                'document_id': document_id,
+                'timestamp': timestamp,
+                'change_comment': change_comment,
+                'content_hash_before': old_hash,
+                'content_hash_after': new_hash,
+                'lines_added': lines_added,
+                'lines_removed': lines_removed,
+                's3_version_id': version_id
+            }
+        )
+        
+        # Update contributor stats
+        contributor_stats_table = dynamodb.Table(f'kb-contributor-stats{table_suffix}')
+        
+        # Calculate points (10 base + bonuses)
+        points = 10
+        if lines_added > 50:
+            points += 5  # Substantial addition
+        if len(change_comment) > 100:
+            points += 2  # Detailed comment
+        
+        # Update stats
+        contributor_stats_table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='''
+                SET total_edits = if_not_exists(total_edits, :zero) + :one,
+                    total_lines_added = if_not_exists(total_lines_added, :zero) + :lines_added,
+                    total_lines_removed = if_not_exists(total_lines_removed, :zero) + :lines_removed,
+                    total_points = if_not_exists(total_points, :zero) + :points,
+                    last_edit_timestamp = :timestamp,
+                    display_name = if_not_exists(display_name, :email)
+            ''',
+            ExpressionAttributeValues={
+                ':zero': 0,
+                ':one': 1,
+                ':lines_added': lines_added,
+                ':lines_removed': lines_removed,
+                ':points': points,
+                ':timestamp': timestamp,
+                ':email': user.get('email', 'Unknown')
+            }
+        )
+        
+        # Trigger Bedrock ingestion
+        bedrock_agent = boto3.client('bedrock-agent')
+        try:
+            ingestion_response = bedrock_agent.start_ingestion_job(
+                knowledgeBaseId=KB_ID,
+                dataSourceId=KB_DATA_SOURCE_ID
+            )
+            ingestion_job_id = ingestion_response['ingestionJob']['ingestionJobId']
+        except Exception as e:
+            print(f"Error starting ingestion job: {str(e)}")
+            ingestion_job_id = None
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'success': True,
+                'edit_id': edit_id,
+                'points_earned': points,
+                'ingestion_job_id': ingestion_job_id,
+                'changes': {
+                    'lines_added': lines_added,
+                    'lines_removed': lines_removed
+                }
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_update_kb_document: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to update document', 'message': str(e)})
+        }
+
+@require_auth
+def handle_get_kb_contributors(event):
+    """GET /kb-contributors - Get contributor leaderboard"""
+    try:
+        query_params = event.get('queryStringParameters') or {}
+        period = query_params.get('period', 'all')  # all, month, week
+        limit = int(query_params.get('limit', 10))
+        table_suffix = get_table_suffix(event)
+        
+        contributor_stats_table = dynamodb.Table(f'kb-contributor-stats{table_suffix}')
+        
+        # Scan all contributors
+        response = contributor_stats_table.scan()
+        contributors = response.get('Items', [])
+        
+        # Filter by period if needed
+        if period != 'all':
+            # For now, return all (period filtering would require monthly_stats field)
+            pass
+        
+        # Sort by total_points
+        contributors.sort(key=lambda x: x.get('total_points', 0), reverse=True)
+        
+        # Limit results
+        contributors = contributors[:limit]
+        
+        # Add rank
+        for i, contributor in enumerate(contributors):
+            contributor['rank'] = i + 1
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'contributors': contributors,
+                'period': period
+            }, cls=DecimalEncoder)
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_get_kb_contributors: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to load contributors', 'message': str(e)})
+        }
+
+@require_auth
+def handle_get_my_contributions(event):
+    """GET /kb-my-contributions - Get current user's contributions"""
+    try:
+        user = event['user']
+        user_id = user['sub']
+        table_suffix = get_table_suffix(event)
+        
+        # Get user stats
+        contributor_stats_table = dynamodb.Table(f'kb-contributor-stats{table_suffix}')
+        response = contributor_stats_table.get_item(Key={'user_id': user_id})
+        stats = response.get('Item', {
+            'user_id': user_id,
+            'total_edits': 0,
+            'total_lines_added': 0,
+            'total_lines_removed': 0,
+            'total_points': 0
+        })
+        
+        # Get recent edits
+        edit_history_table = dynamodb.Table(f'kb-edit-history{table_suffix}')
+        response = edit_history_table.query(
+            IndexName='user_id-timestamp-index',
+            KeyConditionExpression='user_id = :user_id',
+            ExpressionAttributeValues={':user_id': user_id},
+            ScanIndexForward=False,  # Newest first
+            Limit=10
+        )
+        recent_edits = response.get('Items', [])
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'stats': stats,
+                'recent_edits': recent_edits
+            }, cls=DecimalEncoder)
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_get_my_contributions: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to load contributions', 'message': str(e)})
+        }
+
+@require_auth
+def handle_get_ingestion_status(event, job_id):
+    """GET /kb-ingestion-status/{job_id} - Check ingestion job status"""
+    try:
+        bedrock_agent = boto3.client('bedrock-agent')
+        
+        response = bedrock_agent.get_ingestion_job(
+            knowledgeBaseId=KB_ID,
+            dataSourceId=KB_DATA_SOURCE_ID,
+            ingestionJobId=job_id
+        )
+        
+        job = response['ingestionJob']
+        
+        return {
+            'statusCode': 200,
+            'headers': cors_headers(),
+            'body': json.dumps({
+                'status': job['status'],
+                'started_at': job.get('startedAt', '').isoformat() if job.get('startedAt') else None,
+                'completed_at': job.get('updatedAt', '').isoformat() if job.get('updatedAt') else None
+            })
+        }
+    
+    except Exception as e:
+        print(f"Error in handle_get_ingestion_status: {str(e)}")
+        return {
+            'statusCode': 500,
+            'headers': cors_headers(),
+            'body': json.dumps({'error': 'Failed to check ingestion status', 'message': str(e)})
         }
