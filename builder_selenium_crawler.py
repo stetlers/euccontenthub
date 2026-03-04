@@ -1,3 +1,4 @@
+```python
 """
 Builder.AWS Selenium Crawler
 Fetches real author names and content from Builder.AWS pages using Selenium/Chrome
@@ -173,29 +174,39 @@ def get_posts_to_crawl(post_ids=None):
                 print(f"  Error fetching post {post_id}: {e}")
         return posts
     else:
-        # Scan for all EUC-related Builder.AWS posts
+        # Scan for all EUC-related posts from Builder.AWS AND AWS Blogs
+        # Modified to handle both domains for complete EUC coverage
         try:
-            response = table.scan(
-                FilterExpression='contains(#source, :source)',
-                ExpressionAttributeNames={'#source': 'source'},
-                ExpressionAttributeValues={':source': 'builder.aws.com'}
-            )
+            response = table.scan()
             
             posts = []
             for item in response.get('Items', []):
-                # Check if EUC-related
                 url = item.get('url', '')
                 title = item.get('title', '')
+                source = item.get('source', '')
                 text = f"{url} {title}".lower()
                 
+                # Check if from Builder.AWS or AWS Blogs
+                is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
+                is_aws_blog = 'aws.amazon.com/blogs' in url
+                
+                # EUC-related keywords for filtering
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
-                    'vdi', 'daas'
+                    'vdi', 'daas', 'desktop-and-application-streaming',
+                    'application streaming', 'graphics', 'bundle'
                 ]
                 
-                if any(keyword in text for keyword in euc_keywords):
+                # Include if:
+                # 1. From Builder.AWS AND EUC-related
+                # 2. From AWS Blogs desktop-and-application-streaming category (always EUC)
+                # 3. From AWS Blogs AND contains EUC keywords
+                is_euc_related = any(keyword in text for keyword in euc_keywords)
+                is_das_category = '/desktop-and-application-streaming/' in url
+                
+                if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
                     posts.append({
                         'post_id': item.get('post_id'),
                         'url': url
@@ -216,7 +227,10 @@ def lambda_handler(event, context):
     - table_name (optional): DynamoDB table name
     
     If post_ids provided: Crawl ONLY those specific posts
-    If post_ids not provided: Crawl ALL EUC posts from Builder.AWS
+    If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
+    
+    Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
+    complete coverage of EUC content including desktop-and-application-streaming category.
     """
     
     # Get parameters from event
@@ -228,13 +242,13 @@ def lambda_handler(event, context):
     if table_name != TABLE_NAME:
         table = dynamodb.Table(table_name)
     
-    print(f"Starting Builder.AWS Selenium Crawler")
+    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
     print(f"DynamoDB Table: {table_name}")
     
     if post_ids:
         print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
     else:
-        print("Crawling all EUC posts from Builder.AWS")
+        print("Crawling all EUC posts from Builder.AWS and AWS Blogs")
     
     # Get posts to crawl
     posts = get_posts_to_crawl(post_ids)
@@ -340,3 +354,4 @@ if __name__ == '__main__':
     
     result = lambda_handler(test_event, None)
     print(json.dumps(result, indent=2))
+```
