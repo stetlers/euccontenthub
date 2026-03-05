@@ -300,7 +300,7 @@ def get_posts_to_crawl(post_ids):
         post_ids: List of specific post IDs to crawl
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'title': str, 'publish_date': str}
     """
     posts = []
     for post_id in post_ids:
@@ -308,10 +308,16 @@ def get_posts_to_crawl(post_ids):
             response = table.get_item(Key={'post_id': post_id})
             if 'Item' in response:
                 item = response['Item']
-                posts.append({
+                post_data = {
                     'post_id': post_id,
-                    'url': item.get('url', '')
-                })
+                    'url': item.get('url', ''),
+                    'title': item.get('title', 'Unknown'),
+                    'publish_date': item.get('publish_date', 'Unknown')
+                }
+                posts.append(post_data)
+                print(f"  Loaded post: {post_id} - {post_data['title']} ({post_data['publish_date']})")
+            else:
+                print(f"  Warning: Post {post_id} not found in DynamoDB")
         except Exception as e:
             print(f"  Error fetching post {post_id}: {e}")
     return posts
@@ -380,8 +386,13 @@ def main():
         for idx, post in enumerate(posts, 1):
             post_id = post['post_id']
             url = post['url']
+            title = post.get('title', 'Unknown')
+            publish_date = post.get('publish_date', 'Unknown')
             
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
+            print(f"[{idx}/{len(posts)}] Processing: {title}")
+            print(f"  URL: {url}")
+            print(f"  Post ID: {post_id}")
+            print(f"  Publish Date: {publish_date}")
             
             # Detect if this is an AWS blog post or Builder.AWS post
             # and use the appropriate extraction method
@@ -396,6 +407,7 @@ def main():
                 # Update DynamoDB
                 if update_post_in_dynamodb(post_id, result['authors'], result['content']):
                     print(f"  ✓ Updated: {result['authors']}")
+                    print(f"  ✓ Content length: {len(result['content'])} characters")
                     posts_updated += 1
                 else:
                     print(f"  ✗ Failed to update DynamoDB")
@@ -409,29 +421,4 @@ def main():
             # Small delay between requests
             time.sleep(1)
     
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
-        sys.exit(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-            print("Chrome driver closed")
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        invoke_summary_generator(posts_updated)
-    
-    # Print summary
-    print(f"\n=== Crawler Summary ===")
-    print(f"Posts processed: {posts_processed}")
-    print(f"Posts updated: {posts_updated}")
-    print(f"Posts failed: {posts_failed}")
-    
-    # Exit with appropriate code
-    if posts_failed > 0:
-        print("Exiting with failure code (some posts failed)")
-        sys.exit(1)
-    else:
-        print("Exiting with success code
+    except Exception as e

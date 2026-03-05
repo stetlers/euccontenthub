@@ -93,8 +93,10 @@ class AWSBlogCrawler:
                 href = link_tag['href']
                 full_url = urljoin(self.base_url, href)
                 # Updated to handle both production and staging domains
+                # Support both aws.amazon.com and staging.awseuccontent.com domains
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
                     links.append(full_url)
+                    print(f"  DEBUG: Found article link: {full_url}")
         
         # Alternative: find all links that match the blog pattern
         if not links:
@@ -103,9 +105,15 @@ class AWSBlogCrawler:
                 href = link['href']
                 if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
                     full_url = urljoin(self.base_url, href)
+                    # Check that this is a post URL (has sufficient path depth)
+                    # and not a category, tag, or page navigation URL
                     if full_url not in links and full_url.count('/') > 5:
-                        links.append(full_url)
+                        # Additional check: exclude pagination, category, tag URLs
+                        if '/page/' not in full_url and '/category/' not in full_url and '/tag/' not in full_url:
+                            links.append(full_url)
+                            print(f"  DEBUG: Found link via alternative method: {full_url}")
         
+        print(f"  DEBUG: Total links extracted: {len(links)}")
         return list(set(links))
     
     def find_next_page(self, html):
@@ -117,7 +125,9 @@ class AWSBlogCrawler:
         if next_link and next_link.get('href'):
             href = next_link['href']
             if '/blogs/desktop-and-application-streaming/' in href:
-                return urljoin(self.base_url, href)
+                next_url = urljoin(self.base_url, href)
+                print(f"  DEBUG: Found 'Older posts' link: {next_url}")
+                return next_url
         
         # Alternative: look for page/N/ pattern in links
         all_links = soup.find_all('a', href=re.compile(r'/page/\d+/'))
@@ -125,8 +135,11 @@ class AWSBlogCrawler:
             for link in all_links:
                 href = link.get('href')
                 if '/blogs/desktop-and-application-streaming/' in href:
-                    return urljoin(self.base_url, href)
+                    next_url = urljoin(self.base_url, href)
+                    print(f"  DEBUG: Found pagination link: {next_url}")
+                    return next_url
         
+        print("  DEBUG: No next page link found")
         return None
 
     def extract_post_metadata(self, url, html):
@@ -353,24 +366,4 @@ class AWSBlogCrawler:
         all_post_urls = set()
         visited_pages = set()
         
-        # Step 1: Collect all post URLs from all listing pages
-        while current_url and current_url not in visited_pages:
-            if max_pages and page_num > max_pages:
-                print(f"Reached max pages limit: {max_pages}")
-                break
-                
-            print(f"Fetching listing page {page_num}: {current_url}")
-            visited_pages.add(current_url)
-            html = self.get_page(current_url)
-            
-            if not html:
-                break
-            
-            # Extract post links from this page
-            post_links = self.extract_post_links(html)
-            print(f"Found {len(post_links)} posts on page {page_num}")
-            
-            # Only add valid blog post URLs
-            for link in post_links:
-                if link not in visited_pages and '/blogs/desktop-and-application-streaming/' in link:
-                    if '/category/' not in link and '/tag/'
+        # Step

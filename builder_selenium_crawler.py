@@ -156,7 +156,7 @@ def get_posts_to_crawl(post_ids=None):
         post_ids: List of specific post IDs to crawl (optional)
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'title': str, 'date': str}
     """
     if post_ids:
         # Fetch specific posts by ID
@@ -168,7 +168,9 @@ def get_posts_to_crawl(post_ids=None):
                     item = response['Item']
                     posts.append({
                         'post_id': post_id,
-                        'url': item.get('url', '')
+                        'url': item.get('url', ''),
+                        'title': item.get('title', ''),
+                        'date': item.get('date', '')
                     })
             except Exception as e:
                 print(f"  Error fetching post {post_id}: {e}")
@@ -184,19 +186,28 @@ def get_posts_to_crawl(post_ids=None):
                 url = item.get('url', '')
                 title = item.get('title', '')
                 source = item.get('source', '')
+                date_str = item.get('date', '')
                 text = f"{url} {title}".lower()
+                
+                # Debug logging for date filtering
+                # Commenting this out for production, but useful for debugging
+                # print(f"DEBUG: Checking post: {title[:50]}... | Date: {date_str} | URL: {url}")
                 
                 # Check if from Builder.AWS or AWS Blogs
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url
                 
                 # EUC-related keywords for filtering
+                # FIXED: Added more variations including 'g6' and 'graphics' to catch posts like
+                # "Amazon WorkSpaces Graphics G6 bundles"
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
                     'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle'
+                    'application streaming', 'graphics', 'bundle',
+                    'g4dn', 'g5', 'g6',  # Graphics bundle types
+                    'graphicspro', 'graphics.g4dn', 'graphics pro'
                 ]
                 
                 # Include if:
@@ -206,13 +217,55 @@ def get_posts_to_crawl(post_ids=None):
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
                 is_das_category = '/desktop-and-application-streaming/' in url
                 
-                if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
+                # FIXED: Production behavior comparison - ensure we're not over-filtering
+                # Production includes posts from desktop-and-application-streaming without additional keyword checks
+                should_include = False
+                reason = ""
+                
+                if is_builder and is_euc_related:
+                    should_include = True
+                    reason = "Builder.AWS + EUC keywords"
+                elif is_aws_blog and is_das_category:
+                    should_include = True
+                    reason = "AWS Blog + DAS category"
+                elif is_aws_blog and is_euc_related:
+                    should_include = True
+                    reason = "AWS Blog + EUC keywords"
+                
+                if should_include:
+                    # Debug logging for included posts
+                    # print(f"DEBUG: INCLUDED - {title[:50]}... | Reason: {reason}")
                     posts.append({
                         'post_id': item.get('post_id'),
-                        'url': url
+                        'url': url,
+                        'title': title,
+                        'date': date_str
                     })
+                # else:
+                    # Debug logging for excluded posts
+                    # print(f"DEBUG: EXCLUDED - {title[:50]}... | Builder: {is_builder} | AWS Blog: {is_aws_blog} | EUC: {is_euc_related} | DAS: {is_das_category}")
             
-            return posts
+            # FIXED: Sort posts by date (newest first) to help with debugging
+            # This ensures recent posts like the March 2, 2026 post are prioritized
+            posts_with_dates = [p for p in posts if p.get('date')]
+            posts_without_dates = [p for p in posts if not p.get('date')]
+            
+            # Sort posts with dates by date descending (newest first)
+            posts_with_dates.sort(key=lambda x: x['date'], reverse=True)
+            
+            # Combine: dated posts first, then undated posts
+            sorted_posts = posts_with_dates + posts_without_dates
+            
+            print(f"DEBUG: Total posts found: {len(sorted_posts)}")
+            if sorted_posts:
+                print(f"DEBUG: Newest post date: {sorted_posts[0].get('date', 'N/A')}")
+                print(f"DEBUG: Oldest post date: {posts_with_dates[-1].get('date', 'N/A') if posts_with_dates else 'N/A'}")
+                # Print first 5 posts for verification
+                print("DEBUG: First 5 posts to crawl:")
+                for i, post in enumerate(sorted_posts[:5], 1):
+                    print(f"  {i}. {post.get('date', 'N/A')} - {post.get('title', '')[:60]}...")
+            
+            return sorted_posts
         except Exception as e:
             print(f"  Error scanning DynamoDB: {e}")
             return []
@@ -225,17 +278,23 @@ def lambda_handler(event, context):
     Event parameters:
     - post_ids (optional): List of post IDs to crawl (e.g., ['builder-post-1', 'builder-post-2'])
     - table_name (optional): DynamoDB table name
+    - debug (optional): Enable debug logging (default: False)
     
     If post_ids provided: Crawl ONLY those specific posts
     If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
     
     Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
     complete coverage of EUC content including desktop-and-application-streaming category.
+    
+    FIXED: Enhanced keyword matching to include graphics bundle types (G4DN, G5, G6)
+    FIXED: Improved date sorting to prioritize recent posts for debugging
+    FIXED: Added debug logging to track post filtering and detection
     """
     
     # Get parameters from event
     post_ids = event.get('post_ids', []) if event else []
     table_name = event.get('table_name', TABLE_NAME) if event else TABLE_NAME
+    debug_mode = event.get('debug', False) if event else False
     
     # Update global table reference if custom table name provided
     global table
@@ -244,6 +303,7 @@ def lambda_handler(event, context):
     
     print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
     print(f"DynamoDB Table: {table_name}")
+    print(f"Debug Mode: {debug_mode}")
     
     if post_ids:
         print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
@@ -265,6 +325,14 @@ def lambda_handler(event, context):
     
     print(f"Found {len(posts)} posts to crawl")
     
+    # FIXED: In debug mode, show which specific posts we're about to crawl
+    if debug_mode and posts:
+        print("\nDEBUG: Posts selected for crawling:")
+        for idx, post in enumerate(posts[:10], 1):  # Show first 10
+            print(f"  {idx}. [{post.get('date', 'N/A')}] {post.get('title', '')[:70]}...")
+        if len(posts) > 10:
+            print(f"  ... and {len(posts) - 10} more posts")
+    
     # Set up Selenium driver
     driver = None
     posts_processed = 0
@@ -278,8 +346,11 @@ def lambda_handler(event, context):
         for idx, post in enumerate(posts, 1):
             post_id = post['post_id']
             url = post['url']
+            title = post.get('title', 'Unknown')
+            date = post.get('date', 'N/A')
             
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
+            print(f"[{idx}/{len(posts)}] Processing [{date}]: {title[:60]}...")
+            print(f"  URL: {url}")
             
             # Extract content
             result = extract_page_content(driver, url)
@@ -314,44 +385,4 @@ def lambda_handler(event, context):
             environment = os.environ.get('ENVIRONMENT', 'production')
             function_name = f"aws-blog-summary-generator:{environment}"
             
-            # Calculate number of batches needed (5 posts per batch)
-            batch_size = 5
-            num_batches = (posts_updated + batch_size - 1) // batch_size
-            
-            for i in range(num_batches):
-                lambda_client.invoke(
-                    FunctionName=function_name,
-                    InvocationType='Event',  # Async invocation
-                    Payload=json.dumps({
-                        'batch_size': batch_size,
-                        'force': False
-                    })
-                )
-                print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
-                time.sleep(2)  # 2-second delay between batches
-        except Exception as e:
-            print(f"  Warning: Could not invoke summary Lambda: {e}")
-    
-    # Return results
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'message': 'Selenium crawler completed',
-            'posts_processed': posts_processed,
-            'posts_updated': posts_updated,
-            'posts_failed': posts_failed,
-            'summary_generator_invoked': posts_updated > 0
-        })
-    }
-
-
-if __name__ == '__main__':
-    # For local testing
-    test_event = {
-        'post_ids': [],  # Empty = crawl all
-        'table_name': 'aws-blog-posts-staging'
-    }
-    
-    result = lambda_handler(test_event, None)
-    print(json.dumps(result, indent=2))
-```
+            # Calculate number of batches needed (5 posts per
