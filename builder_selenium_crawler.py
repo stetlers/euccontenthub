@@ -8,7 +8,7 @@ import json
 import os
 import time
 import boto3
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -148,15 +148,16 @@ def update_post_in_dynamodb(post_id, authors, content):
         return False
 
 
-def get_posts_to_crawl(post_ids=None):
+def get_posts_to_crawl(post_ids=None, date_filter_days=None):
     """
     Get posts to crawl from DynamoDB
     
     Args:
         post_ids: List of specific post IDs to crawl (optional)
+        date_filter_days: Only crawl posts from the last N days (optional)
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'published_date': str}
     """
     if post_ids:
         # Fetch specific posts by ID
@@ -168,7 +169,9 @@ def get_posts_to_crawl(post_ids=None):
                     item = response['Item']
                     posts.append({
                         'post_id': post_id,
-                        'url': item.get('url', '')
+                        'url': item.get('url', ''),
+                        'published_date': item.get('published_date', ''),
+                        'title': item.get('title', '')
                     })
             except Exception as e:
                 print(f"  Error fetching post {post_id}: {e}")
@@ -180,23 +183,45 @@ def get_posts_to_crawl(post_ids=None):
             response = table.scan()
             
             posts = []
+            cutoff_date = None
+            
+            # Calculate cutoff date if date filter is enabled
+            if date_filter_days:
+                cutoff_date = datetime.utcnow() - timedelta(days=date_filter_days)
+                print(f"  Date filter enabled: including posts from {cutoff_date.strftime('%Y-%m-%d')} onwards")
+            
             for item in response.get('Items', []):
                 url = item.get('url', '')
                 title = item.get('title', '')
                 source = item.get('source', '')
+                published_date = item.get('published_date', '')
                 text = f"{url} {title}".lower()
+                
+                # ENHANCED: Check published date against cutoff if filter enabled
+                if cutoff_date and published_date:
+                    try:
+                        # Parse published_date (format: YYYY-MM-DD)
+                        post_date = datetime.strptime(published_date, '%Y-%m-%d')
+                        if post_date < cutoff_date:
+                            continue  # Skip posts older than cutoff
+                    except ValueError:
+                        # If date parsing fails, include the post to be safe
+                        print(f"  Warning: Could not parse date for {item.get('post_id')}: {published_date}")
                 
                 # Check if from Builder.AWS or AWS Blogs
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url
                 
-                # EUC-related keywords for filtering
+                # ENHANCED: Expanded EUC-related keywords for better detection
+                # Added 'workspaces graphics', 'g6', and 'bundle' variations
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
                     'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle'
+                    'application streaming', 'graphics', 'bundle',
+                    'workspaces graphics', 'graphics bundle', 'g6 bundle',
+                    'g6.xlarge', 'g6.2xlarge', 'graphics workspaces'
                 ]
                 
                 # Include if:
@@ -209,8 +234,24 @@ def get_posts_to_crawl(post_ids=None):
                 if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
                     posts.append({
                         'post_id': item.get('post_id'),
-                        'url': url
+                        'url': url,
+                        'published_date': published_date,
+                        'title': title
                     })
+            
+            # DIAGNOSTIC: Log posts by date to help debug filtering issues
+            if posts:
+                print(f"  Found {len(posts)} posts after filtering")
+                # Group by date for diagnostic output
+                date_counts = {}
+                for post in posts:
+                    date = post.get('published_date', 'unknown')
+                    date_counts[date] = date_counts.get(date, 0) + 1
+                
+                # Print date distribution
+                print(f"  Posts by date:")
+                for date in sorted(date_counts.keys(), reverse=True):
+                    print(f"    {date}: {date_counts[date]} post(s)")
             
             return posts
         except Exception as e:
@@ -225,17 +266,28 @@ def lambda_handler(event, context):
     Event parameters:
     - post_ids (optional): List of post IDs to crawl (e.g., ['builder-post-1', 'builder-post-2'])
     - table_name (optional): DynamoDB table name
+    - date_filter_days (optional): Only crawl posts from last N days (e.g., 90 for last 90 days)
     
     If post_ids provided: Crawl ONLY those specific posts
     If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
     
+    Date filtering: Use date_filter_days to limit crawling to recent posts only.
+    This helps with:
+    - Reducing unnecessary crawling of old posts
+    - Ensuring new posts are detected and crawled
+    - Diagnosing date-related filtering issues
+    
     Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
     complete coverage of EUC content including desktop-and-application-streaming category.
+    
+    ENHANCED: Added diagnostic logging for date filtering and URL detection to help
+    troubleshoot issues with missing posts like the WorkSpaces Graphics G6 bundles post.
     """
     
     # Get parameters from event
     post_ids = event.get('post_ids', []) if event else []
     table_name = event.get('table_name', TABLE_NAME) if event else TABLE_NAME
+    date_filter_days = event.get('date_filter_days', None) if event else None
     
     # Update global table reference if custom table name provided
     global table
@@ -244,17 +296,27 @@ def lambda_handler(event, context):
     
     print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
     print(f"DynamoDB Table: {table_name}")
+    print(f"Date Filter: {'Last ' + str(date_filter_days) + ' days' if date_filter_days else 'Disabled (all posts)'}")
     
     if post_ids:
         print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
     else:
         print("Crawling all EUC posts from Builder.AWS and AWS Blogs")
     
-    # Get posts to crawl
-    posts = get_posts_to_crawl(post_ids)
+    # DIAGNOSTIC: Log current date for debugging
+    current_date = datetime.utcnow().strftime('%Y-%m-%d')
+    print(f"Current UTC date: {current_date}")
+    
+    # Get posts to crawl with optional date filter
+    posts = get_posts_to_crawl(post_ids, date_filter_days)
     
     if not posts:
         print("No posts to crawl")
+        print("DIAGNOSTIC: This could mean:")
+        print("  1. No posts match the EUC keyword filters")
+        print("  2. Date filter is excluding all posts")
+        print("  3. Posts exist but URLs/keywords don't match detection patterns")
+        print("  Recommendation: Try running without date_filter_days to see all posts")
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -264,6 +326,13 @@ def lambda_handler(event, context):
         }
     
     print(f"Found {len(posts)} posts to crawl")
+    
+    # DIAGNOSTIC: Show sample of posts to be crawled
+    print("\nSample of posts to be crawled:")
+    for post in posts[:5]:
+        print(f"  - {post['published_date']}: {post['title'][:80]}...")
+    if len(posts) > 5:
+        print(f"  ... and {len(posts) - 5} more")
     
     # Set up Selenium driver
     driver = None
@@ -278,8 +347,9 @@ def lambda_handler(event, context):
         for idx, post in enumerate(posts, 1):
             post_id = post['post_id']
             url = post['url']
+            published_date = post.get('published_date', 'unknown')
             
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
+            print(f"[{idx}/{len(posts)}] Processing [{published_date}]: {url}")
             
             # Extract content
             result = extract_page_content(driver, url)
@@ -319,39 +389,4 @@ def lambda_handler(event, context):
             num_batches = (posts_updated + batch_size - 1) // batch_size
             
             for i in range(num_batches):
-                lambda_client.invoke(
-                    FunctionName=function_name,
-                    InvocationType='Event',  # Async invocation
-                    Payload=json.dumps({
-                        'batch_size': batch_size,
-                        'force': False
-                    })
-                )
-                print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
-                time.sleep(2)  # 2-second delay between batches
-        except Exception as e:
-            print(f"  Warning: Could not invoke summary Lambda: {e}")
-    
-    # Return results
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'message': 'Selenium crawler completed',
-            'posts_processed': posts_processed,
-            'posts_updated': posts_updated,
-            'posts_failed': posts_failed,
-            'summary_generator_invoked': posts_updated > 0
-        })
-    }
-
-
-if __name__ == '__main__':
-    # For local testing
-    test_event = {
-        'post_ids': [],  # Empty = crawl all
-        'table_name': 'aws-blog-posts-staging'
-    }
-    
-    result = lambda_handler(test_event, None)
-    print(json.dumps(result, indent=2))
-```
+                
