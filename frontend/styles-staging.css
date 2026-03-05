@@ -1,3 +1,4 @@
+```css
 /* EUC Content Hub - Refined Modern Theme */
 /* Keeps card layout, adds polish and sophistication */
 
@@ -31,6 +32,12 @@
     --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
     --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
     --shadow-hover: 0 12px 24px -4px rgba(0, 0, 0, 0.12), 0 8px 12px -4px rgba(0, 0, 0, 0.06);
+    
+    /* Additional Colors for New Features */
+    --danger-color: #dc3545;
+    --danger-hover: #c82333;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
 }
 
 body {
@@ -386,7 +393,9 @@ select:hover, .btn-secondary:hover {
     margin-bottom: 16px;
 }
 
-/* Vote Section - Refined */
+/* ============================================
+   VOTE SECTION - Enhanced with Unvote Support
+   ============================================ */
 .vote-section {
     margin-top: auto;
     padding-top: 20px;
@@ -426,12 +435,13 @@ select:hover, .btn-secondary:hover {
     cursor: not-allowed;
 }
 
+/* Love Button States */
 .love-btn {
     border-color: #fce4ec;
     background: #fce4ec;
 }
 
-.love-btn:hover:not(.disabled) {
+.love-btn:hover:not(.disabled):not(.loved) {
     border-color: #f06292;
     background: #f8bbd0;
 }
@@ -440,94 +450,27 @@ select:hover, .btn-secondary:hover {
     border-color: #e91e63;
     background: #f06292;
     color: white;
+    position: relative;
 }
 
-/* ============================================
-   LOADING & STATES
-   ============================================ */
-.loading {
-    text-align: center;
-    padding: 80px 20px;
+.love-btn.loved:hover:not(.disabled) {
+    border-color: #c2185b;
+    background: #ec407a;
 }
 
-.spinner {
-    border: 4px solid var(--border-color);
-    border-top: 4px solid var(--secondary-color);
-    border-radius: 50%;
-    width: 48px;
-    height: 48px;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 20px;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-.no-results {
-    text-align: center;
-    padding: 80px 20px;
+/* Unvote Button - Appears when user has voted */
+.unvote-btn {
+    border-color: var(--text-muted);
+    background: #f8f9fa;
     color: var(--text-secondary);
 }
 
-.no-results h2 {
-    font-size: 1.5rem;
-    margin-bottom: 12px;
-    color: var(--text-color);
+.unvote-btn:hover:not(.disabled) {
+    border-color: var(--danger-color);
+    background: #fff5f5;
+    color: var(--danger-color);
+    transform: translateY(-2px);
 }
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
-@media (max-width: 768px) {
-    header {
-        padding: 32px 20px;
-    }
-    
-    header h1 {
-        font-size: 2rem;
-    }
-    
-    .subtitle {
-        font-size: 1rem;
-    }
-    
-    .analytics-section {
-        grid-template-columns: 1fr;
-    }
-    
-    .posts-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stats {
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    }
-}
-
-/* ============================================
-   ANIMATIONS & TRANSITIONS
-   ============================================ */
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.post-card {
-    animation: fadeIn 0.4s ease-out;
-}
-
-/* Stagger animation for cards */
-.post-card:nth-child(1) { animation-delay: 0.05s; }
-.post-card:nth-child(2) { animation-delay: 0.1s; }
-.post-card:nth-child(3) { animation-delay: 0.15s; }
-.post-card:nth-child(4) { animation-delay: 0.2s; }
-.post-card:nth-child(5) { animation-delay: 0.25s; }
-.post-card:nth-child(6) { animation-delay: 0.3s; }
+/* Vote State Indicators */
+.vote-status {
