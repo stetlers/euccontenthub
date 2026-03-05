@@ -184,29 +184,44 @@ def get_posts_to_crawl(post_ids=None):
                 url = item.get('url', '')
                 title = item.get('title', '')
                 source = item.get('source', '')
-                text = f"{url} {title}".lower()
                 
-                # Check if from Builder.AWS or AWS Blogs
-                is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
-                is_aws_blog = 'aws.amazon.com/blogs' in url
+                # Normalize URL for staging environment detection
+                # Fix: Handle staging.awseuccontent.com domain which is used for staging crawler
+                normalized_url = url.lower()
+                normalized_source = source.lower()
+                
+                text = f"{normalized_url} {title}".lower()
+                
+                # Check if from Builder.AWS or AWS Blogs (including staging domain)
+                is_builder = (
+                    'builder.aws.com' in normalized_source or 
+                    'builder.aws.com' in normalized_url or
+                    'staging.awseuccontent.com' in normalized_url or
+                    'staging.awseuccontent.com' in normalized_source
+                )
+                is_aws_blog = 'aws.amazon.com/blogs' in normalized_url
                 
                 # EUC-related keywords for filtering
+                # Fix: Enhanced keywords to catch WorkSpaces Graphics bundles
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
                     'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle'
+                    'application streaming', 'graphics', 'bundle',
+                    'g6', 'gr6', 'g6f',  # Graphics bundle types
+                    'graphics g6', 'workspaces graphics'  # Specific bundle mentions
                 ]
                 
                 # Include if:
-                # 1. From Builder.AWS AND EUC-related
+                # 1. From Builder.AWS (including staging) AND EUC-related
                 # 2. From AWS Blogs desktop-and-application-streaming category (always EUC)
                 # 3. From AWS Blogs AND contains EUC keywords
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
-                is_das_category = '/desktop-and-application-streaming/' in url
+                is_das_category = '/desktop-and-application-streaming/' in normalized_url
                 
                 if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
+                    print(f"  Found EUC post: {title[:60]}... (source: {source})")
                     posts.append({
                         'post_id': item.get('post_id'),
                         'url': url
@@ -231,6 +246,7 @@ def lambda_handler(event, context):
     
     Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
     complete coverage of EUC content including desktop-and-application-streaming category.
+    Enhanced to handle staging.awseuccontent.com domain for staging environment testing.
     """
     
     # Get parameters from event
@@ -242,13 +258,13 @@ def lambda_handler(event, context):
     if table_name != TABLE_NAME:
         table = dynamodb.Table(table_name)
     
-    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
+    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs + Staging)")
     print(f"DynamoDB Table: {table_name}")
     
     if post_ids:
         print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
     else:
-        print("Crawling all EUC posts from Builder.AWS and AWS Blogs")
+        print("Crawling all EUC posts from Builder.AWS (including staging.awseuccontent.com) and AWS Blogs")
     
     # Get posts to crawl
     posts = get_posts_to_crawl(post_ids)

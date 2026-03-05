@@ -188,16 +188,43 @@ class AWSBlogCrawler:
                         if name_match:
                             metadata['authors'] = name_match.group(1).strip()
         
-        # Extract published date
+        # Extract published date - ENHANCED for staging environment
         date_tag = soup.find('time', {'datetime': True})
         if date_tag:
             metadata['date_published'] = date_tag.get('datetime', '')
         else:
+            # Try meta tags
             date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
                         soup.find('meta', {'name': 'date'}) or
                         soup.find('meta', {'name': 'publish_date'}))
             if date_meta:
                 metadata['date_published'] = date_meta.get('content', '')
+            else:
+                # ENHANCED: Try to extract date from text for staging environment
+                # Look for patterns like "March 2, 2026" or "on March 2, 2026"
+                date_patterns = [
+                    r'\bon\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})',  # "on March 2, 2026"
+                    r'([A-Z][a-z]+\s+\d{1,2},\s+\d{4})',  # "March 2, 2026"
+                    r'(\d{4}-\d{2}-\d{2})',  # "2026-03-02"
+                    r'(\d{1,2}/\d{1,2}/\d{4})',  # "3/2/2026" or "03/02/2026"
+                ]
+                
+                for pattern in date_patterns:
+                    date_match = re.search(pattern, page_text)
+                    if date_match:
+                        date_str = date_match.group(1)
+                        try:
+                            # Try to parse and convert to ISO format
+                            from dateutil import parser
+                            parsed_date = parser.parse(date_str)
+                            metadata['date_published'] = parsed_date.isoformat()
+                            print(f"  Extracted date from text: {date_str} -> {metadata['date_published']}")
+                            break
+                        except:
+                            # If dateutil not available or parsing fails, store as-is
+                            metadata['date_published'] = date_str
+                            print(f"  Extracted date from text (unparsed): {date_str}")
+                            break
         
         # Extract updated date
         updated_tag = soup.find('time', {'class': re.compile(r'updated|modified', re.IGNORECASE)})
@@ -330,47 +357,3 @@ class AWSBlogCrawler:
             # Use update_item to preserve voting fields
             self.table.update_item(
                 Key={'post_id': post_id},
-                UpdateExpression=update_expression,
-                ExpressionAttributeNames={
-                    '#url': 'url',  # 'url' is a reserved word in DynamoDB
-                    '#source': 'source'
-                },
-                ExpressionAttributeValues=expression_values
-            )
-            
-            self.posts_processed += 1
-            return True
-            
-        except Exception as e:
-            print(f"Error saving to DynamoDB: {e}")
-            return False
-    
-    def crawl_all_posts(self, max_pages=None):
-        """Crawl all blog posts from all pages"""
-        print(f"Starting crawl of {self.base_url}")
-        current_url = self.base_url
-        page_num = 1
-        all_post_urls = set()
-        visited_pages = set()
-        
-        # Step 1: Collect all post URLs from all listing pages
-        while current_url and current_url not in visited_pages:
-            if max_pages and page_num > max_pages:
-                print(f"Reached max pages limit: {max_pages}")
-                break
-                
-            print(f"Fetching listing page {page_num}: {current_url}")
-            visited_pages.add(current_url)
-            html = self.get_page(current_url)
-            
-            if not html:
-                break
-            
-            # Extract post links from this page
-            post_links = self.extract_post_links(html)
-            print(f"Found {len(post_links)} posts on page {page_num}")
-            
-            # Only add valid blog post URLs
-            for link in post_links:
-                if link not in visited_pages and '/blogs/desktop-and-application-streaming/' in link:
-                    if '/category/' not in link and '/tag/'

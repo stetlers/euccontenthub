@@ -59,6 +59,16 @@ def is_aws_blog_post(url):
     return url and 'aws.amazon.com/blogs/' in url
 
 
+def is_staging_url(url):
+    """
+    Check if URL is from staging environment
+    
+    Returns:
+        bool: True if it's a staging URL
+    """
+    return url and 'staging.awseuccontent.com' in url
+
+
 def extract_aws_blog_content(driver, url, max_retries=3):
     """
     Extract author and content from an AWS blog post
@@ -70,26 +80,32 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         try:
             driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            # Wait for page to load - increased timeout for staging
+            wait_timeout = 15 if is_staging_url(url) else 10
+            WebDriverWait(driver, wait_timeout).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Give JavaScript time to render
-            time.sleep(2)
+            # Give JavaScript time to render - longer for staging
+            sleep_time = 3 if is_staging_url(url) else 2
+            time.sleep(sleep_time)
             
             # Extract author name
             authors = "AWS"  # Default
             try:
-                # AWS blog author selectors
+                # AWS blog author selectors (expanded for staging)
                 author_selectors = [
                     "//div[contains(@class, 'blog-post-meta')]//a[contains(@href, '/author/')]",
+                    "//div[contains(@class, 'blog-post-meta')]//span[contains(@class, 'author')]",
                     "//span[contains(@class, 'author')]",
                     "//div[contains(@class, 'author')]//a",
                     "//a[contains(@rel, 'author')]",
                     "//meta[@name='author']",
                     "//span[@class='author']",
-                    "//div[@class='author']"
+                    "//div[@class='author']",
+                    "//div[contains(@class, 'post-meta')]//a",
+                    "//div[contains(@class, 'byline')]",
+                    "//span[contains(@class, 'byline')]"
                 ]
                 
                 for selector in author_selectors:
@@ -112,14 +128,18 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             # Extract content
             content = ""
             try:
-                # AWS blog content selectors
+                # AWS blog content selectors (expanded for staging)
                 content_selectors = [
                     "//div[contains(@class, 'blog-post-content')]",
+                    "//div[contains(@class, 'post-content')]",
                     "//article[contains(@class, 'blog-post')]",
+                    "//article[contains(@class, 'post')]",
                     "//div[contains(@class, 'entry-content')]",
                     "//div[@id='main-content']",
+                    "//div[contains(@class, 'main-content')]",
                     "//article",
-                    "//main"
+                    "//main",
+                    "//div[@role='main']"
                 ]
                 
                 for selector in content_selectors:
@@ -152,7 +172,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)  # Longer retry delay for staging
             else:
                 print(f"  Failed after {max_retries} attempts")
                 return None
@@ -160,7 +180,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         except Exception as e:
             print(f"  Error: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)  # Longer retry delay
             else:
                 return None
     
@@ -178,13 +198,15 @@ def extract_page_content(driver, url, max_retries=3):
         try:
             driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            # Wait for page to load - increased timeout for staging
+            wait_timeout = 15 if is_staging_url(url) else 10
+            WebDriverWait(driver, wait_timeout).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Give JavaScript time to render
-            time.sleep(2)
+            # Give JavaScript time to render - longer for staging
+            sleep_time = 3 if is_staging_url(url) else 2
+            time.sleep(sleep_time)
             
             # Extract author name
             authors = "AWS Builder Community"  # Default
@@ -259,7 +281,7 @@ def extract_page_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)  # Longer retry delay for staging
             else:
                 print(f"  Failed after {max_retries} attempts")
                 return None
@@ -267,7 +289,7 @@ def extract_page_content(driver, url, max_retries=3):
         except Exception as e:
             print(f"  Error: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)  # Longer retry delay
             else:
                 return None
     
@@ -383,6 +405,10 @@ def main():
             
             print(f"[{idx}/{len(posts)}] Processing: {url}")
             
+            # Check if this is a staging URL
+            if is_staging_url(url):
+                print(f"  Detected STAGING URL - using extended timeouts and retries")
+            
             # Detect if this is an AWS blog post or Builder.AWS post
             # and use the appropriate extraction method
             if is_aws_blog_post(url):
@@ -390,48 +416,4 @@ def main():
                 result = extract_aws_blog_content(driver, url)
             else:
                 print(f"  Detected Builder.AWS post - using Builder.AWS extractor")
-                result = extract_page_content(driver, url)
-            
-            if result:
-                # Update DynamoDB
-                if update_post_in_dynamodb(post_id, result['authors'], result['content']):
-                    print(f"  ✓ Updated: {result['authors']}")
-                    posts_updated += 1
-                else:
-                    print(f"  ✗ Failed to update DynamoDB")
-                    posts_failed += 1
-            else:
-                print(f"  ✗ Failed to extract content")
-                posts_failed += 1
-            
-            posts_processed += 1
-            
-            # Small delay between requests
-            time.sleep(1)
-    
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
-        sys.exit(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-            print("Chrome driver closed")
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        invoke_summary_generator(posts_updated)
-    
-    # Print summary
-    print(f"\n=== Crawler Summary ===")
-    print(f"Posts processed: {posts_processed}")
-    print(f"Posts updated: {posts_updated}")
-    print(f"Posts failed: {posts_failed}")
-    
-    # Exit with appropriate code
-    if posts_failed > 0:
-        print("Exiting with failure code (some posts failed)")
-        sys.exit(1)
-    else:
-        print("Exiting with success code
+                
