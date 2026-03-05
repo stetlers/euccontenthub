@@ -24,6 +24,11 @@ table = dynamodb.Table(TABLE_NAME)
 # Lambda client for invoking summary generator
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 
+# CloudWatch Logs setup for detailed crawler diagnostics
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
 
 def setup_driver():
     """Set up Chrome driver with headless options"""
@@ -47,12 +52,14 @@ def extract_page_content(driver, url):
         dict: {'authors': str, 'content': str} or None if extraction fails
     """
     try:
+        logger.info(f"Attempting to load URL: {url}")
         driver.get(url)
         
         # Wait for page to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
+        logger.info(f"Page loaded successfully: {url}")
         
         # Give JavaScript time to render
         time.sleep(2)
@@ -78,11 +85,12 @@ def extract_page_content(driver, url):
                         authors = author_elem.text.strip()
                     
                     if authors and authors != "AWS Builder Community":
+                        logger.info(f"Found author using selector {selector}: {authors}")
                         break
                 except NoSuchElementException:
                     continue
         except Exception as e:
-            print(f"  Warning: Could not extract author: {e}")
+            logger.warning(f"Could not extract author from {url}: {e}")
         
         # Extract content
         content = ""
@@ -101,6 +109,7 @@ def extract_page_content(driver, url):
                     content_elem = driver.find_element(By.XPATH, selector)
                     content = content_elem.text.strip()
                     if content and len(content) > 100:  # Ensure we got substantial content
+                        logger.info(f"Found content using selector {selector}: {len(content)} chars")
                         break
                 except NoSuchElementException:
                     continue
@@ -109,13 +118,15 @@ def extract_page_content(driver, url):
             if not content or len(content) < 100:
                 body = driver.find_element(By.TAG_NAME, "body")
                 content = body.text.strip()
+                logger.info(f"Using body text as fallback: {len(content)} chars")
         except Exception as e:
-            print(f"  Warning: Could not extract content: {e}")
+            logger.warning(f"Could not extract content from {url}: {e}")
             content = "Content extraction failed. Visit the full article on Builder.AWS."
         
         # Limit content to first 3000 characters (matching AWS Blog crawler)
         if len(content) > 3000:
             content = content[:3000]
+            logger.info(f"Content truncated to 3000 chars")
         
         return {
             'authors': authors,
@@ -123,16 +134,17 @@ def extract_page_content(driver, url):
         }
         
     except TimeoutException:
-        print(f"  Error: Page load timeout for {url}")
+        logger.error(f"Page load timeout for {url}")
         return None
     except Exception as e:
-        print(f"  Error extracting content from {url}: {e}")
+        logger.error(f"Error extracting content from {url}: {e}", exc_info=True)
         return None
 
 
 def update_post_in_dynamodb(post_id, authors, content):
     """Update a post in DynamoDB with real authors and content"""
     try:
+        logger.info(f"Updating DynamoDB for post_id: {post_id}")
         table.update_item(
             Key={'post_id': post_id},
             UpdateExpression='SET authors = :authors, content = :content, last_crawled = :last_crawled',
@@ -142,24 +154,54 @@ def update_post_in_dynamodb(post_id, authors, content):
                 ':last_crawled': datetime.utcnow().isoformat()
             }
         )
+        logger.info(f"Successfully updated DynamoDB for post_id: {post_id}")
         return True
     except Exception as e:
-        print(f"  Error updating DynamoDB for {post_id}: {e}")
+        logger.error(f"Error updating DynamoDB for {post_id}: {e}", exc_info=True)
         return False
 
 
-def get_posts_to_crawl(post_ids=None):
+def verify_dynamodb_write(post_id):
+    """
+    Verify that a post was correctly written to DynamoDB
+    
+    Args:
+        post_id: The post ID to verify
+        
+    Returns:
+        dict: The item from DynamoDB or None if not found
+    """
+    try:
+        logger.info(f"Verifying DynamoDB write for post_id: {post_id}")
+        response = table.get_item(Key={'post_id': post_id})
+        if 'Item' in response:
+            item = response['Item']
+            logger.info(f"Verified post {post_id} in DynamoDB - authors: {item.get('authors', 'N/A')}, "
+                       f"content_length: {len(item.get('content', ''))}, "
+                       f"last_crawled: {item.get('last_crawled', 'N/A')}")
+            return item
+        else:
+            logger.warning(f"Post {post_id} not found in DynamoDB after write attempt")
+            return None
+    except Exception as e:
+        logger.error(f"Error verifying DynamoDB write for {post_id}: {e}", exc_info=True)
+        return None
+
+
+def get_posts_to_crawl(post_ids=None, date_filter=None):
     """
     Get posts to crawl from DynamoDB
     
     Args:
         post_ids: List of specific post IDs to crawl (optional)
+        date_filter: Date string (YYYY-MM-DD) to filter posts from that date onward (optional)
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'title': str, 'published_date': str}
     """
     if post_ids:
         # Fetch specific posts by ID
+        logger.info(f"Fetching specific posts: {post_ids}")
         posts = []
         for post_id in post_ids:
             try:
@@ -168,35 +210,55 @@ def get_posts_to_crawl(post_ids=None):
                     item = response['Item']
                     posts.append({
                         'post_id': post_id,
-                        'url': item.get('url', '')
+                        'url': item.get('url', ''),
+                        'title': item.get('title', ''),
+                        'published_date': item.get('published_date', '')
                     })
+                    logger.info(f"Found post: {post_id} - {item.get('title', 'N/A')}")
+                else:
+                    logger.warning(f"Post {post_id} not found in DynamoDB")
             except Exception as e:
-                print(f"  Error fetching post {post_id}: {e}")
+                logger.error(f"Error fetching post {post_id}: {e}", exc_info=True)
         return posts
     else:
         # Scan for all EUC-related posts from Builder.AWS AND AWS Blogs
-        # Modified to handle both domains for complete EUC coverage
+        logger.info("Scanning DynamoDB for all EUC-related posts")
         try:
             response = table.scan()
+            logger.info(f"DynamoDB scan returned {len(response.get('Items', []))} total items")
             
             posts = []
             for item in response.get('Items', []):
                 url = item.get('url', '')
                 title = item.get('title', '')
                 source = item.get('source', '')
+                published_date = item.get('published_date', '')
+                post_id = item.get('post_id')
                 text = f"{url} {title}".lower()
+                
+                # Apply date filter if specified
+                if date_filter and published_date:
+                    try:
+                        # Parse dates for comparison (YYYY-MM-DD format)
+                        post_date = published_date.split('T')[0] if 'T' in published_date else published_date
+                        if post_date < date_filter:
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Could not parse date for post {post_id}: {e}")
                 
                 # Check if from Builder.AWS or AWS Blogs
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url
                 
-                # EUC-related keywords for filtering
+                # EUC-related keywords for filtering - EXPANDED for better detection
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
                     'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle'
+                    'application streaming', 'graphics', 'bundle',
+                    'graphics bundle', 'graphics.g4dn', 'g4dn', 'gpu',
+                    'workspaces graphics', 'amazon workspaces'
                 ]
                 
                 # Include if:
@@ -208,150 +270,97 @@ def get_posts_to_crawl(post_ids=None):
                 
                 if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
                     posts.append({
-                        'post_id': item.get('post_id'),
-                        'url': url
+                        'post_id': post_id,
+                        'url': url,
+                        'title': title,
+                        'published_date': published_date
                     })
+                    logger.info(f"Matched post: {post_id} - {title} ({published_date})")
+                    logger.info(f"  Source: {source}, URL: {url}")
+                    logger.info(f"  Match reason: is_builder={is_builder}, is_euc={is_euc_related}, "
+                               f"is_das_category={is_das_category}")
             
+            logger.info(f"Found {len(posts)} EUC-related posts to crawl")
             return posts
         except Exception as e:
-            print(f"  Error scanning DynamoDB: {e}")
+            logger.error(f"Error scanning DynamoDB: {e}", exc_info=True)
             return []
 
 
-def lambda_handler(event, context):
+def diagnose_missing_post(url_pattern=None, title_pattern=None, date_range=None):
     """
-    Lambda handler for Builder.AWS Selenium crawler
+    Diagnostic function to investigate why a specific post might not be detected
     
-    Event parameters:
-    - post_ids (optional): List of post IDs to crawl (e.g., ['builder-post-1', 'builder-post-2'])
-    - table_name (optional): DynamoDB table name
-    
-    If post_ids provided: Crawl ONLY those specific posts
-    If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
-    
-    Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
-    complete coverage of EUC content including desktop-and-application-streaming category.
+    Args:
+        url_pattern: Partial URL to search for (e.g., 'amazon-workspaces-graphics')
+        title_pattern: Partial title to search for (e.g., 'Graphics bundles')
+        date_range: Tuple of (start_date, end_date) in YYYY-MM-DD format
+        
+    Returns:
+        list: Matching posts with diagnostic information
     """
-    
-    # Get parameters from event
-    post_ids = event.get('post_ids', []) if event else []
-    table_name = event.get('table_name', TABLE_NAME) if event else TABLE_NAME
-    
-    # Update global table reference if custom table name provided
-    global table
-    if table_name != TABLE_NAME:
-        table = dynamodb.Table(table_name)
-    
-    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
-    print(f"DynamoDB Table: {table_name}")
-    
-    if post_ids:
-        print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
-    else:
-        print("Crawling all EUC posts from Builder.AWS and AWS Blogs")
-    
-    # Get posts to crawl
-    posts = get_posts_to_crawl(post_ids)
-    
-    if not posts:
-        print("No posts to crawl")
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'No posts to crawl',
-                'posts_processed': 0
-            })
-        }
-    
-    print(f"Found {len(posts)} posts to crawl")
-    
-    # Set up Selenium driver
-    driver = None
-    posts_processed = 0
-    posts_updated = 0
-    posts_failed = 0
+    logger.info("=" * 80)
+    logger.info("DIAGNOSTIC MODE: Searching for missing post")
+    logger.info(f"URL pattern: {url_pattern}")
+    logger.info(f"Title pattern: {title_pattern}")
+    logger.info(f"Date range: {date_range}")
+    logger.info("=" * 80)
     
     try:
-        driver = setup_driver()
+        response = table.scan()
+        all_items = response.get('Items', [])
+        logger.info(f"Total items in DynamoDB: {len(all_items)}")
         
-        # Process each post
-        for idx, post in enumerate(posts, 1):
-            post_id = post['post_id']
-            url = post['url']
+        matching_posts = []
+        for item in all_items:
+            url = item.get('url', '')
+            title = item.get('title', '')
+            published_date = item.get('published_date', '')
+            source = item.get('source', '')
+            post_id = item.get('post_id')
             
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
+            # Check URL pattern
+            url_match = url_pattern and url_pattern.lower() in url.lower()
             
-            # Extract content
-            result = extract_page_content(driver, url)
+            # Check title pattern
+            title_match = title_pattern and title_pattern.lower() in title.lower()
             
-            if result:
-                # Update DynamoDB
-                if update_post_in_dynamodb(post_id, result['authors'], result['content']):
-                    print(f"  ✓ Updated: {result['authors']}")
-                    posts_updated += 1
-                else:
-                    print(f"  ✗ Failed to update DynamoDB")
-                    posts_failed += 1
-            else:
-                print(f"  ✗ Failed to extract content")
-                posts_failed += 1
+            # Check date range
+            date_match = True
+            if date_range and published_date:
+                try:
+                    post_date = published_date.split('T')[0] if 'T' in published_date else published_date
+                    date_match = date_range[0] <= post_date <= date_range[1]
+                except:
+                    date_match = False
             
-            posts_processed += 1
-            
-            # Small delay between requests
-            time.sleep(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        
-        try:
-            # Determine which alias to use based on environment
-            environment = os.environ.get('ENVIRONMENT', 'production')
-            function_name = f"aws-blog-summary-generator:{environment}"
-            
-            # Calculate number of batches needed (5 posts per batch)
-            batch_size = 5
-            num_batches = (posts_updated + batch_size - 1) // batch_size
-            
-            for i in range(num_batches):
-                lambda_client.invoke(
-                    FunctionName=function_name,
-                    InvocationType='Event',  # Async invocation
-                    Payload=json.dumps({
-                        'batch_size': batch_size,
-                        'force': False
-                    })
-                )
-                print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
-                time.sleep(2)  # 2-second delay between batches
-        except Exception as e:
-            print(f"  Warning: Could not invoke summary Lambda: {e}")
-    
-    # Return results
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
-            'message': 'Selenium crawler completed',
-            'posts_processed': posts_processed,
-            'posts_updated': posts_updated,
-            'posts_failed': posts_failed,
-            'summary_generator_invoked': posts_updated > 0
-        })
-    }
-
-
-if __name__ == '__main__':
-    # For local testing
-    test_event = {
-        'post_ids': [],  # Empty = crawl all
-        'table_name': 'aws-blog-posts-staging'
-    }
-    
-    result = lambda_handler(test_event, None)
-    print(json.dumps(result, indent=2))
-```
+            if url_match or title_match or (date_range and date_match):
+                matching_posts.append(item)
+                logger.info("=" * 80)
+                logger.info(f"FOUND MATCHING POST:")
+                logger.info(f"  Post ID: {post_id}")
+                logger.info(f"  Title: {title}")
+                logger.info(f"  URL: {url}")
+                logger.info(f"  Source: {source}")
+                logger.info(f"  Published: {published_date}")
+                logger.info(f"  URL Match: {url_match}")
+                logger.info(f"  Title Match: {title_match}")
+                logger.info(f"  Date Match: {date_match}")
+                
+                # Check filtering logic
+                text = f"{url} {title}".lower()
+                is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
+                is_aws_blog = 'aws.amazon.com/blogs' in url
+                is_das_category = '/desktop-and-application-streaming/' in url
+                
+                euc_keywords = [
+                    'euc', 'end-user-computing', 'end user computing',
+                    'workspaces', 'appstream', 'workspace',
+                    'end user', 'desktop', 'virtual desktop',
+                    'vdi', 'daas', 'desktop-and-application-streaming',
+                    'application streaming', 'graphics', 'bundle',
+                    'graphics bundle', 'graphics.g4dn', 'g4dn', 'gpu',
+                    'workspaces graphics', 'amazon workspaces'
+                ]
+                
+                matched_

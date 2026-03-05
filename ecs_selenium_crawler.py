@@ -30,9 +30,46 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 
+# CloudWatch Logs for enhanced debugging
+logs_client = boto3.client('logs', region_name='us-east-1')
+LOG_GROUP_NAME = f'/ecs/selenium-crawler-{ENVIRONMENT}'
+
+
+def log_to_cloudwatch(message, level='INFO'):
+    """
+    Enhanced logging to CloudWatch for debugging
+    
+    Args:
+        message: Log message
+        level: Log level (INFO, WARNING, ERROR, DEBUG)
+    """
+    timestamp = int(time.time() * 1000)
+    log_message = f"[{level}] [{datetime.utcnow().isoformat()}] {message}"
+    
+    # Print to stdout (captured by ECS)
+    print(log_message)
+    
+    # Also send to CloudWatch for centralized logging
+    try:
+        logs_client.put_log_events(
+            logGroupName=LOG_GROUP_NAME,
+            logStreamName=f'crawler-{datetime.utcnow().strftime("%Y-%m-%d")}',
+            logEvents=[
+                {
+                    'timestamp': timestamp,
+                    'message': log_message
+                }
+            ]
+        )
+    except Exception as e:
+        # Don't fail the crawler if CloudWatch logging fails
+        print(f"WARNING: Could not write to CloudWatch: {e}")
+
 
 def setup_driver():
     """Set up Chrome driver with headless options for ECS"""
+    log_to_cloudwatch("Setting up Chrome driver", "DEBUG")
+    
     chrome_options = Options()
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--no-sandbox')
@@ -46,6 +83,7 @@ def setup_driver():
     driver = webdriver.Chrome(options=chrome_options)
     driver.set_page_load_timeout(30)
     
+    log_to_cloudwatch("Chrome driver initialized successfully", "DEBUG")
     return driver
 
 
@@ -59,6 +97,66 @@ def is_aws_blog_post(url):
     return url and 'aws.amazon.com/blogs/' in url
 
 
+def verify_url_accessible(driver, url):
+    """
+    Verify that a URL is accessible and returns a valid page
+    
+    Returns:
+        dict: {'accessible': bool, 'status_code': int, 'error': str}
+    """
+    log_to_cloudwatch(f"Verifying URL accessibility: {url}", "DEBUG")
+    
+    try:
+        driver.get(url)
+        time.sleep(2)  # Wait for page to load
+        
+        # Check if we got a valid page (not 404 or error page)
+        page_title = driver.title
+        page_source = driver.page_source
+        
+        # Check for common error indicators
+        error_indicators = [
+            '404',
+            'page not found',
+            'not found',
+            'error',
+            'access denied'
+        ]
+        
+        page_text_lower = page_source.lower()
+        has_error = any(indicator in page_text_lower for indicator in error_indicators)
+        
+        if has_error:
+            log_to_cloudwatch(f"URL appears to have an error: {page_title}", "WARNING")
+            return {
+                'accessible': False,
+                'status_code': 404,
+                'error': f"Page contains error indicators. Title: {page_title}"
+            }
+        
+        log_to_cloudwatch(f"URL is accessible. Title: {page_title}", "DEBUG")
+        return {
+            'accessible': True,
+            'status_code': 200,
+            'error': None
+        }
+        
+    except TimeoutException:
+        log_to_cloudwatch(f"Timeout accessing URL: {url}", "ERROR")
+        return {
+            'accessible': False,
+            'status_code': 0,
+            'error': "Timeout accessing URL"
+        }
+    except Exception as e:
+        log_to_cloudwatch(f"Error accessing URL: {url} - {str(e)}", "ERROR")
+        return {
+            'accessible': False,
+            'status_code': 0,
+            'error': str(e)
+        }
+
+
 def extract_aws_blog_content(driver, url, max_retries=3):
     """
     Extract author and content from an AWS blog post
@@ -66,6 +164,8 @@ def extract_aws_blog_content(driver, url, max_retries=3):
     Returns:
         dict: {'authors': str, 'content': str} or None if extraction fails
     """
+    log_to_cloudwatch(f"Extracting AWS blog content from: {url}", "DEBUG")
+    
     for attempt in range(max_retries):
         try:
             driver.get(url)
@@ -102,12 +202,12 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                             authors = author_elem.text.strip()
                         
                         if authors and authors != "AWS":
-                            print(f"  Found author with selector: {selector}")
+                            log_to_cloudwatch(f"Found author with selector: {selector} - Author: {authors}", "DEBUG")
                             break
                     except NoSuchElementException:
                         continue
             except Exception as e:
-                print(f"  Warning: Could not extract author: {e}")
+                log_to_cloudwatch(f"Could not extract author: {str(e)}", "WARNING")
             
             # Extract content
             content = ""
@@ -127,7 +227,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         content_elem = driver.find_element(By.XPATH, selector)
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
-                            print(f"  Found content with selector: {selector}")
+                            log_to_cloudwatch(f"Found content with selector: {selector} - Length: {len(content)}", "DEBUG")
                             break
                     except NoSuchElementException:
                         continue
@@ -136,14 +236,16 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                 if not content or len(content) < 100:
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
+                    log_to_cloudwatch(f"Using body content - Length: {len(content)}", "DEBUG")
             except Exception as e:
-                print(f"  Warning: Could not extract content: {e}")
+                log_to_cloudwatch(f"Could not extract content: {str(e)}", "ERROR")
                 content = "Content extraction failed. Visit the full article on AWS Blog."
             
             # Limit content to first 3000 characters
             if len(content) > 3000:
                 content = content[:3000]
             
+            log_to_cloudwatch(f"Successfully extracted AWS blog content - Author: {authors}, Content length: {len(content)}", "INFO")
             return {
                 'authors': authors,
                 'content': content
@@ -151,14 +253,14 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             
         except TimeoutException:
             if attempt < max_retries - 1:
-                print(f"  Timeout on attempt {attempt + 1}, retrying...")
+                log_to_cloudwatch(f"Timeout on attempt {attempt + 1}, retrying...", "WARNING")
                 time.sleep(2)
             else:
-                print(f"  Failed after {max_retries} attempts")
+                log_to_cloudwatch(f"Failed after {max_retries} attempts", "ERROR")
                 return None
                 
         except Exception as e:
-            print(f"  Error: {e}")
+            log_to_cloudwatch(f"Error extracting content (attempt {attempt + 1}): {str(e)}", "ERROR")
             if attempt < max_retries - 1:
                 time.sleep(2)
             else:
@@ -174,6 +276,8 @@ def extract_page_content(driver, url, max_retries=3):
     Returns:
         dict: {'authors': str, 'content': str} or None if extraction fails
     """
+    log_to_cloudwatch(f"Extracting Builder.AWS content from: {url}", "DEBUG")
+    
     for attempt in range(max_retries):
         try:
             driver.get(url)
@@ -211,12 +315,12 @@ def extract_page_content(driver, url, max_retries=3):
                             authors = author_elem.text.strip()
                         
                         if authors and authors != "AWS Builder Community":
-                            print(f"  Found author with selector: {selector}")
+                            log_to_cloudwatch(f"Found author with selector: {selector} - Author: {authors}", "DEBUG")
                             break
                     except NoSuchElementException:
                         continue
             except Exception as e:
-                print(f"  Warning: Could not extract author: {e}")
+                log_to_cloudwatch(f"Could not extract author: {str(e)}", "WARNING")
             
             # Extract content
             content = ""
@@ -235,6 +339,7 @@ def extract_page_content(driver, url, max_retries=3):
                         content_elem = driver.find_element(By.XPATH, selector)
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
+                            log_to_cloudwatch(f"Found content with selector: {selector} - Length: {len(content)}", "DEBUG")
                             break
                     except NoSuchElementException:
                         continue
@@ -243,14 +348,16 @@ def extract_page_content(driver, url, max_retries=3):
                 if not content or len(content) < 100:
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
+                    log_to_cloudwatch(f"Using body content - Length: {len(content)}", "DEBUG")
             except Exception as e:
-                print(f"  Warning: Could not extract content: {e}")
+                log_to_cloudwatch(f"Could not extract content: {str(e)}", "ERROR")
                 content = "Content extraction failed. Visit the full article on Builder.AWS."
             
             # Limit content to first 3000 characters (matching AWS Blog crawler)
             if len(content) > 3000:
                 content = content[:3000]
             
+            log_to_cloudwatch(f"Successfully extracted Builder.AWS content - Author: {authors}, Content length: {len(content)}", "INFO")
             return {
                 'authors': authors,
                 'content': content
@@ -258,14 +365,14 @@ def extract_page_content(driver, url, max_retries=3):
             
         except TimeoutException:
             if attempt < max_retries - 1:
-                print(f"  Timeout on attempt {attempt + 1}, retrying...")
+                log_to_cloudwatch(f"Timeout on attempt {attempt + 1}, retrying...", "WARNING")
                 time.sleep(2)
             else:
-                print(f"  Failed after {max_retries} attempts")
+                log_to_cloudwatch(f"Failed after {max_retries} attempts", "ERROR")
                 return None
                 
         except Exception as e:
-            print(f"  Error: {e}")
+            log_to_cloudwatch(f"Error extracting content (attempt {attempt + 1}): {str(e)}", "ERROR")
             if attempt < max_retries - 1:
                 time.sleep(2)
             else:
@@ -275,163 +382,24 @@ def extract_page_content(driver, url, max_retries=3):
 
 
 def update_post_in_dynamodb(post_id, authors, content):
-    """Update a post in DynamoDB with real authors and content"""
+    """
+    Update a post in DynamoDB with real authors and content
+    
+    Includes enhanced logging for debugging DynamoDB write issues
+    """
+    log_to_cloudwatch(f"Updating DynamoDB for post_id: {post_id}", "DEBUG")
+    log_to_cloudwatch(f"Table: {TABLE_NAME}, Authors: {authors}, Content length: {len(content)}", "DEBUG")
+    
     try:
-        table.update_item(
+        response = table.update_item(
             Key={'post_id': post_id},
             UpdateExpression='SET authors = :authors, content = :content, last_crawled = :last_crawled',
             ExpressionAttributeValues={
                 ':authors': authors,
                 ':content': content,
                 ':last_crawled': datetime.utcnow().isoformat()
-            }
+            },
+            ReturnValues='ALL_NEW'
         )
-        return True
-    except Exception as e:
-        print(f"  Error updating DynamoDB for {post_id}: {e}")
-        return False
-
-
-def get_posts_to_crawl(post_ids):
-    """
-    Get posts to crawl from DynamoDB
-    
-    Args:
-        post_ids: List of specific post IDs to crawl
         
-    Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
-    """
-    posts = []
-    for post_id in post_ids:
-        try:
-            response = table.get_item(Key={'post_id': post_id})
-            if 'Item' in response:
-                item = response['Item']
-                posts.append({
-                    'post_id': post_id,
-                    'url': item.get('url', '')
-                })
-        except Exception as e:
-            print(f"  Error fetching post {post_id}: {e}")
-    return posts
-
-
-def invoke_summary_generator(posts_updated):
-    """Invoke summary generator Lambda for the posts we just updated"""
-    try:
-        # Determine which alias to use based on environment
-        function_name = f"aws-blog-summary-generator:{ENVIRONMENT}"
-        
-        # Calculate number of batches needed (5 posts per batch)
-        batch_size = 5
-        num_batches = (posts_updated + batch_size - 1) // batch_size
-        
-        for i in range(num_batches):
-            lambda_client.invoke(
-                FunctionName=function_name,
-                InvocationType='Event',  # Async invocation
-                Payload=json.dumps({
-                    'batch_size': batch_size,
-                    'force': False,
-                    'table_name': TABLE_NAME  # Pass table name for staging support
-                })
-            )
-            print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
-            time.sleep(2)  # 2-second delay between batches
-        
-        return True
-    except Exception as e:
-        print(f"  Warning: Could not invoke summary Lambda: {e}")
-        return False
-
-
-def main():
-    """Main entry point for ECS task"""
-    print(f"Starting Selenium Crawler (ECS)")
-    print(f"Environment: {ENVIRONMENT}")
-    print(f"DynamoDB Table: {TABLE_NAME}")
-    print(f"Post IDs: {POST_IDS}")
-    
-    if not POST_IDS:
-        print("ERROR: No post IDs provided")
-        sys.exit(1)
-    
-    # Get posts to crawl
-    posts = get_posts_to_crawl(POST_IDS)
-    
-    if not posts:
-        print("ERROR: No posts found in DynamoDB")
-        sys.exit(1)
-    
-    print(f"Found {len(posts)} posts to crawl")
-    
-    # Set up Selenium driver
-    driver = None
-    posts_processed = 0
-    posts_updated = 0
-    posts_failed = 0
-    
-    try:
-        driver = setup_driver()
-        print("Chrome driver initialized successfully")
-        
-        # Process each post
-        for idx, post in enumerate(posts, 1):
-            post_id = post['post_id']
-            url = post['url']
-            
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
-            
-            # Detect if this is an AWS blog post or Builder.AWS post
-            # and use the appropriate extraction method
-            if is_aws_blog_post(url):
-                print(f"  Detected AWS blog post - using AWS blog extractor")
-                result = extract_aws_blog_content(driver, url)
-            else:
-                print(f"  Detected Builder.AWS post - using Builder.AWS extractor")
-                result = extract_page_content(driver, url)
-            
-            if result:
-                # Update DynamoDB
-                if update_post_in_dynamodb(post_id, result['authors'], result['content']):
-                    print(f"  ✓ Updated: {result['authors']}")
-                    posts_updated += 1
-                else:
-                    print(f"  ✗ Failed to update DynamoDB")
-                    posts_failed += 1
-            else:
-                print(f"  ✗ Failed to extract content")
-                posts_failed += 1
-            
-            posts_processed += 1
-            
-            # Small delay between requests
-            time.sleep(1)
-    
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
-        sys.exit(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-            print("Chrome driver closed")
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        invoke_summary_generator(posts_updated)
-    
-    # Print summary
-    print(f"\n=== Crawler Summary ===")
-    print(f"Posts processed: {posts_processed}")
-    print(f"Posts updated: {posts_updated}")
-    print(f"Posts failed: {posts_failed}")
-    
-    # Exit with appropriate code
-    if posts_failed > 0:
-        print("Exiting with failure code (some posts failed)")
-        sys.exit(1)
-    else:
-        print("Exiting with success code
+        log_to_cloudwatch(f"Successfully updated DynamoDB for post_id: {post_
