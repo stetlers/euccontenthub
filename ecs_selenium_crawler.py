@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import boto3
-from datetime import datetime
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -59,6 +59,16 @@ def is_aws_blog_post(url):
     return url and 'aws.amazon.com/blogs/' in url
 
 
+def is_staging_url(url):
+    """
+    Check if URL is from staging environment
+    
+    Returns:
+        bool: True if it's a staging URL
+    """
+    return url and 'staging.awseuccontent.com' in url
+
+
 def extract_aws_blog_content(driver, url, max_retries=3):
     """
     Extract author and content from an AWS blog post
@@ -68,20 +78,28 @@ def extract_aws_blog_content(driver, url, max_retries=3):
     """
     for attempt in range(max_retries):
         try:
+            print(f"  Loading URL: {url}")
             driver.get(url)
             
             # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Give JavaScript time to render
-            time.sleep(2)
+            # Give JavaScript time to render (increased for staging)
+            time.sleep(3)
+            
+            # Verify page loaded correctly
+            try:
+                page_title = driver.title
+                print(f"  Page title: {page_title}")
+            except Exception as e:
+                print(f"  Warning: Could not get page title: {e}")
             
             # Extract author name
             authors = "AWS"  # Default
             try:
-                # AWS blog author selectors
+                # AWS blog author selectors (expanded for staging)
                 author_selectors = [
                     "//div[contains(@class, 'blog-post-meta')]//a[contains(@href, '/author/')]",
                     "//span[contains(@class, 'author')]",
@@ -89,7 +107,11 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                     "//a[contains(@rel, 'author')]",
                     "//meta[@name='author']",
                     "//span[@class='author']",
-                    "//div[@class='author']"
+                    "//div[@class='author']",
+                    "//div[contains(@class, 'post-author')]",
+                    "//div[contains(@class, 'byline')]//span",
+                    "//div[contains(@class, 'byline')]//a",
+                    "//span[contains(@class, 'by-author')]"
                 ]
                 
                 for selector in author_selectors:
@@ -103,6 +125,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         
                         if authors and authors != "AWS":
                             print(f"  Found author with selector: {selector}")
+                            print(f"  Author: {authors}")
                             break
                     except NoSuchElementException:
                         continue
@@ -112,12 +135,14 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             # Extract content
             content = ""
             try:
-                # AWS blog content selectors
+                # AWS blog content selectors (expanded for staging)
                 content_selectors = [
                     "//div[contains(@class, 'blog-post-content')]",
                     "//article[contains(@class, 'blog-post')]",
                     "//div[contains(@class, 'entry-content')]",
                     "//div[@id='main-content']",
+                    "//div[contains(@class, 'post-content')]",
+                    "//div[contains(@class, 'content-body')]",
                     "//article",
                     "//main"
                 ]
@@ -128,14 +153,17 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
                             print(f"  Found content with selector: {selector}")
+                            print(f"  Content length: {len(content)} chars")
                             break
                     except NoSuchElementException:
                         continue
                 
                 # If no content found, try getting all text from body
                 if not content or len(content) < 100:
+                    print(f"  Warning: Minimal content found ({len(content)} chars), trying body fallback")
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
+                    print(f"  Body text length: {len(content)} chars")
             except Exception as e:
                 print(f"  Warning: Could not extract content: {e}")
                 content = "Content extraction failed. Visit the full article on AWS Blog."
@@ -152,16 +180,17 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)
             else:
-                print(f"  Failed after {max_retries} attempts")
+                print(f"  Failed after {max_retries} attempts due to timeout")
                 return None
                 
         except Exception as e:
-            print(f"  Error: {e}")
+            print(f"  Error on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)
             else:
+                print(f"  Failed after {max_retries} attempts")
                 return None
     
     return None
@@ -176,15 +205,23 @@ def extract_page_content(driver, url, max_retries=3):
     """
     for attempt in range(max_retries):
         try:
+            print(f"  Loading URL: {url}")
             driver.get(url)
             
             # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
             # Give JavaScript time to render
-            time.sleep(2)
+            time.sleep(3)
+            
+            # Verify page loaded correctly
+            try:
+                page_title = driver.title
+                print(f"  Page title: {page_title}")
+            except Exception as e:
+                print(f"  Warning: Could not get page title: {e}")
             
             # Extract author name
             authors = "AWS Builder Community"  # Default
@@ -212,6 +249,7 @@ def extract_page_content(driver, url, max_retries=3):
                         
                         if authors and authors != "AWS Builder Community":
                             print(f"  Found author with selector: {selector}")
+                            print(f"  Author: {authors}")
                             break
                     except NoSuchElementException:
                         continue
@@ -235,14 +273,18 @@ def extract_page_content(driver, url, max_retries=3):
                         content_elem = driver.find_element(By.XPATH, selector)
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
+                            print(f"  Found content with selector: {selector}")
+                            print(f"  Content length: {len(content)} chars")
                             break
                     except NoSuchElementException:
                         continue
                 
                 # If no content found, try getting all text from body
                 if not content or len(content) < 100:
+                    print(f"  Warning: Minimal content found ({len(content)} chars), trying body fallback")
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
+                    print(f"  Body text length: {len(content)} chars")
             except Exception as e:
                 print(f"  Warning: Could not extract content: {e}")
                 content = "Content extraction failed. Visit the full article on Builder.AWS."
@@ -259,16 +301,17 @@ def extract_page_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)
             else:
-                print(f"  Failed after {max_retries} attempts")
+                print(f"  Failed after {max_retries} attempts due to timeout")
                 return None
                 
         except Exception as e:
-            print(f"  Error: {e}")
+            print(f"  Error on attempt {attempt + 1}: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)
             else:
+                print(f"  Failed after {max_retries} attempts")
                 return None
     
     return None
@@ -300,7 +343,7 @@ def get_posts_to_crawl(post_ids):
         post_ids: List of specific post IDs to crawl
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'date': str, 'title': str}
     """
     posts = []
     for post_id in post_ids:
@@ -310,8 +353,12 @@ def get_posts_to_crawl(post_ids):
                 item = response['Item']
                 posts.append({
                     'post_id': post_id,
-                    'url': item.get('url', '')
+                    'url': item.get('url', ''),
+                    'date': item.get('date', ''),
+                    'title': item.get('title', 'Unknown')
                 })
+            else:
+                print(f"  Warning: Post {post_id} not found in DynamoDB")
         except Exception as e:
             print(f"  Error fetching post {post_id}: {e}")
     return posts
@@ -364,74 +411,4 @@ def main():
         print("ERROR: No posts found in DynamoDB")
         sys.exit(1)
     
-    print(f"Found {len(posts)} posts to crawl")
-    
-    # Set up Selenium driver
-    driver = None
-    posts_processed = 0
-    posts_updated = 0
-    posts_failed = 0
-    
-    try:
-        driver = setup_driver()
-        print("Chrome driver initialized successfully")
-        
-        # Process each post
-        for idx, post in enumerate(posts, 1):
-            post_id = post['post_id']
-            url = post['url']
-            
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
-            
-            # Detect if this is an AWS blog post or Builder.AWS post
-            # and use the appropriate extraction method
-            if is_aws_blog_post(url):
-                print(f"  Detected AWS blog post - using AWS blog extractor")
-                result = extract_aws_blog_content(driver, url)
-            else:
-                print(f"  Detected Builder.AWS post - using Builder.AWS extractor")
-                result = extract_page_content(driver, url)
-            
-            if result:
-                # Update DynamoDB
-                if update_post_in_dynamodb(post_id, result['authors'], result['content']):
-                    print(f"  ✓ Updated: {result['authors']}")
-                    posts_updated += 1
-                else:
-                    print(f"  ✗ Failed to update DynamoDB")
-                    posts_failed += 1
-            else:
-                print(f"  ✗ Failed to extract content")
-                posts_failed += 1
-            
-            posts_processed += 1
-            
-            # Small delay between requests
-            time.sleep(1)
-    
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
-        sys.exit(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-            print("Chrome driver closed")
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        invoke_summary_generator(posts_updated)
-    
-    # Print summary
-    print(f"\n=== Crawler Summary ===")
-    print(f"Posts processed: {posts_processed}")
-    print(f"Posts updated: {posts_updated}")
-    print(f"Posts failed: {posts_failed}")
-    
-    # Exit with appropriate code
-    if posts_failed > 0:
-        print("Exiting with failure code (some posts failed)")
-        sys.exit(1)
-    else:
-        print("Exiting with success code
+    print(f"Found {len(posts)} posts to
