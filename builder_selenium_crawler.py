@@ -156,7 +156,7 @@ def get_posts_to_crawl(post_ids=None):
         post_ids: List of specific post IDs to crawl (optional)
         
     Returns:
-        list: List of dicts with {'post_id': str, 'url': str}
+        list: List of dicts with {'post_id': str, 'url': str, 'title': str}
     """
     if post_ids:
         # Fetch specific posts by ID
@@ -168,7 +168,8 @@ def get_posts_to_crawl(post_ids=None):
                     item = response['Item']
                     posts.append({
                         'post_id': post_id,
-                        'url': item.get('url', '')
+                        'url': item.get('url', ''),
+                        'title': item.get('title', '')
                     })
             except Exception as e:
                 print(f"  Error fetching post {post_id}: {e}")
@@ -190,27 +191,40 @@ def get_posts_to_crawl(post_ids=None):
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url
                 
-                # EUC-related keywords for filtering
+                # ENHANCED: EUC-related keywords for filtering
+                # Added more specific WorkSpaces keywords to catch bundle announcements
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
                     'end user', 'desktop', 'virtual desktop',
                     'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle'
+                    'application streaming', 'graphics', 'bundle',
+                    # ADDED: More specific WorkSpaces terms
+                    'graphics g6', 'gr6', 'g6f', 'workspaces bundle',
+                    'workspaces graphics', 'bundle launch', 'graphics bundle'
                 ]
                 
-                # Include if:
+                # ENHANCED: Include if:
                 # 1. From Builder.AWS AND EUC-related
                 # 2. From AWS Blogs desktop-and-application-streaming category (always EUC)
                 # 3. From AWS Blogs AND contains EUC keywords
+                # 4. ADDED: Contains WorkSpaces AND bundle/graphics keywords (catches new bundle announcements)
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
                 is_das_category = '/desktop-and-application-streaming/' in url
+                is_workspaces_bundle = ('workspaces' in text or 'workspace' in text) and \
+                                      ('bundle' in text or 'graphics' in text or 'g6' in text or 'gr6' in text)
                 
-                if (is_builder and is_euc_related) or (is_aws_blog and (is_das_category or is_euc_related)):
+                if (is_builder and is_euc_related) or \
+                   (is_aws_blog and (is_das_category or is_euc_related or is_workspaces_bundle)):
                     posts.append({
                         'post_id': item.get('post_id'),
-                        'url': url
+                        'url': url,
+                        'title': title
                     })
+                    
+                    # DEBUG: Log posts that match bundle-specific criteria
+                    if is_workspaces_bundle:
+                        print(f"  DEBUG: Matched WorkSpaces bundle post: {title}")
             
             return posts
         except Exception as e:
@@ -225,25 +239,31 @@ def lambda_handler(event, context):
     Event parameters:
     - post_ids (optional): List of post IDs to crawl (e.g., ['builder-post-1', 'builder-post-2'])
     - table_name (optional): DynamoDB table name
+    - debug (optional): Enable debug logging (default: False)
     
     If post_ids provided: Crawl ONLY those specific posts
     If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
     
     Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
     complete coverage of EUC content including desktop-and-application-streaming category.
+    
+    ENHANCED: Improved detection for WorkSpaces bundle announcements (G6, Gr6, G6f, etc.)
+    to ensure all new bundle launches are properly crawled.
     """
     
     # Get parameters from event
     post_ids = event.get('post_ids', []) if event else []
     table_name = event.get('table_name', TABLE_NAME) if event else TABLE_NAME
+    debug = event.get('debug', False) if event else False
     
     # Update global table reference if custom table name provided
     global table
     if table_name != TABLE_NAME:
         table = dynamodb.Table(table_name)
     
-    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs)")
+    print(f"Starting Builder.AWS Selenium Crawler (Enhanced for AWS Blogs + WorkSpaces Bundles)")
     print(f"DynamoDB Table: {table_name}")
+    print(f"Debug Mode: {debug}")
     
     if post_ids:
         print(f"Crawling {len(post_ids)} specific posts: {post_ids}")
@@ -265,6 +285,15 @@ def lambda_handler(event, context):
     
     print(f"Found {len(posts)} posts to crawl")
     
+    # DEBUG: Show all posts if debug mode enabled
+    if debug:
+        print("\n=== Posts to Crawl ===")
+        for idx, post in enumerate(posts, 1):
+            print(f"  [{idx}] {post['title']}")
+            print(f"      URL: {post['url']}")
+            print(f"      ID: {post['post_id']}")
+        print("======================\n")
+    
     # Set up Selenium driver
     driver = None
     posts_processed = 0
@@ -278,8 +307,10 @@ def lambda_handler(event, context):
         for idx, post in enumerate(posts, 1):
             post_id = post['post_id']
             url = post['url']
+            title = post.get('title', 'Unknown')
             
-            print(f"[{idx}/{len(posts)}] Processing: {url}")
+            print(f"[{idx}/{len(posts)}] Processing: {title}")
+            print(f"  URL: {url}")
             
             # Extract content
             result = extract_page_content(driver, url)
@@ -288,6 +319,8 @@ def lambda_handler(event, context):
                 # Update DynamoDB
                 if update_post_in_dynamodb(post_id, result['authors'], result['content']):
                     print(f"  ✓ Updated: {result['authors']}")
+                    if debug:
+                        print(f"  Content preview: {result['content'][:200]}...")
                     posts_updated += 1
                 else:
                     print(f"  ✗ Failed to update DynamoDB")
@@ -349,7 +382,8 @@ if __name__ == '__main__':
     # For local testing
     test_event = {
         'post_ids': [],  # Empty = crawl all
-        'table_name': 'aws-blog-posts-staging'
+        'table_name': 'aws-blog-posts-staging',
+        'debug': True  # Enable debug mode for local testing
     }
     
     result = lambda_handler(test_event, None)

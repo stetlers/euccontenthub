@@ -106,6 +106,29 @@ class AWSBlogCrawler:
                     if full_url not in links and full_url.count('/') > 5:
                         links.append(full_url)
         
+        # Enhanced detection: Look for links in common blog list structures
+        # This helps catch posts that may be in different HTML structures
+        blog_containers = soup.find_all(['div', 'section'], class_=re.compile(r'blog-list|post-list|article-list|content-list', re.IGNORECASE))
+        for container in blog_containers:
+            container_links = container.find_all('a', href=True)
+            for link in container_links:
+                href = link['href']
+                if '/blogs/desktop-and-application-streaming/' in href:
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in links and full_url.count('/') > 5:
+                        links.append(full_url)
+        
+        # Additional detection: Look for h2, h3 headings with links (common blog pattern)
+        heading_links = soup.find_all(['h2', 'h3'])
+        for heading in heading_links:
+            link = heading.find('a', href=True)
+            if link:
+                href = link['href']
+                if '/blogs/desktop-and-application-streaming/' in href:
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in links and full_url.count('/') > 5:
+                        links.append(full_url)
+        
         return list(set(links))
     
     def find_next_page(self, html):
@@ -126,6 +149,34 @@ class AWSBlogCrawler:
                 href = link.get('href')
                 if '/blogs/desktop-and-application-streaming/' in href:
                     return urljoin(self.base_url, href)
+        
+        # Enhanced pagination detection: Look for common pagination patterns
+        # Check for "Next", "→", "»" symbols
+        pagination_patterns = [
+            re.compile(r'.*next.*', re.IGNORECASE),
+            re.compile(r'.*older.*', re.IGNORECASE),
+            re.compile(r'.*previous.*', re.IGNORECASE),
+            re.compile(r'→'),
+            re.compile(r'»')
+        ]
+        
+        for pattern in pagination_patterns:
+            nav_link = soup.find('a', string=pattern)
+            if nav_link and nav_link.get('href'):
+                href = nav_link['href']
+                if '/blogs/desktop-and-application-streaming/' in href or '/page/' in href:
+                    return urljoin(self.base_url, href)
+        
+        # Check for pagination nav elements
+        pagination_nav = soup.find('nav', class_=re.compile(r'pagination|nav-links', re.IGNORECASE))
+        if pagination_nav:
+            page_links = pagination_nav.find_all('a', href=True)
+            for link in page_links:
+                href = link.get('href')
+                if '/page/' in href or '/blogs/desktop-and-application-streaming/' in href:
+                    # Make sure it's not the current page
+                    if href != self.base_url:
+                        return urljoin(self.base_url, href)
         
         return None
 
@@ -188,16 +239,51 @@ class AWSBlogCrawler:
                         if name_match:
                             metadata['authors'] = name_match.group(1).strip()
         
-        # Extract published date
+        # Extract published date - Enhanced detection
         date_tag = soup.find('time', {'datetime': True})
         if date_tag:
             metadata['date_published'] = date_tag.get('datetime', '')
         else:
             date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
                         soup.find('meta', {'name': 'date'}) or
-                        soup.find('meta', {'name': 'publish_date'}))
+                        soup.find('meta', {'name': 'publish_date'}) or
+                        soup.find('meta', {'name': 'publication_date'}))
             if date_meta:
                 metadata['date_published'] = date_meta.get('content', '')
+        
+        # Enhanced: Look for date in text if not found in meta tags
+        # Pattern: "on March 2, 2026" or "March 2, 2026" or "2026-03-02"
+        if not metadata['date_published']:
+            # Look for ISO format date
+            iso_date_match = re.search(r'\b(20\d{2}-\d{2}-\d{2})\b', page_text)
+            if iso_date_match:
+                metadata['date_published'] = iso_date_match.group(1)
+            else:
+                # Look for "Month Day, Year" format
+                date_text_match = re.search(r'\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2})\b', page_text)
+                if date_text_match:
+                    try:
+                        # Convert to ISO format
+                        parsed_date = datetime.strptime(date_text_match.group(1).replace(',', ''), '%B %d %Y')
+                        metadata['date_published'] = parsed_date.strftime('%Y-%m-%d')
+                    except:
+                        metadata['date_published'] = date_text_match.group(1)
+        
+        # Enhanced: Look for date in common blog post locations
+        if not metadata['date_published']:
+            date_containers = soup.find_all(['div', 'span', 'p'], class_=re.compile(r'date|publish|post-date', re.IGNORECASE))
+            for container in date_containers:
+                container_text = container.get_text(strip=True)
+                # Try to find date pattern in the container
+                date_match = re.search(r'\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2})\b', container_text)
+                if date_match:
+                    try:
+                        parsed_date = datetime.strptime(date_match.group(1).replace(',', ''), '%B %d %Y')
+                        metadata['date_published'] = parsed_date.strftime('%Y-%m-%d')
+                        break
+                    except:
+                        metadata['date_published'] = date_match.group(1)
+                        break
         
         # Extract updated date
         updated_tag = soup.find('time', {'class': re.compile(r'updated|modified', re.IGNORECASE)})
@@ -241,136 +327,3 @@ class AWSBlogCrawler:
             metadata['authors'] = 'Multiple Authors'
         
         return metadata
-    
-    def save_to_dynamodb(self, metadata):
-        """Save a single post to DynamoDB"""
-        try:
-            # Create a unique ID from the URL
-            post_id = metadata['url'].split('/')[-2] if metadata['url'].endswith('/') else metadata['url'].split('/')[-1]
-            
-            # Check if item exists and if content changed
-            content_changed = False
-            try:
-                response = self.table.get_item(Key={'post_id': post_id})
-                if 'Item' in response:
-                    self.posts_updated += 1
-                    existing_item = response['Item']
-                    
-                    # Check if content changed
-                    old_content = existing_item.get('content', '')
-                    new_content = metadata['content']
-                    if old_content != new_content:
-                        content_changed = True
-                        print(f"  Content changed - will regenerate summary")
-                else:
-                    self.posts_created += 1
-                    content_changed = True  # New post needs summary
-            except:
-                self.posts_created += 1
-                content_changed = True  # New post needs summary
-            
-            # Build update expression based on whether content changed
-            if content_changed:
-                # Clear summary AND label if content changed so they get regenerated
-                update_expression = '''
-                    SET #url = :url,
-                        title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
-                        date_updated = :date_updated,
-                        tags = :tags,
-                        content = :content,
-                        last_crawled = :last_crawled,
-                        summary = :empty,
-                        label = :empty,
-                        label_confidence = :zero,
-                        label_generated = :empty,
-                        #source = :source
-                '''
-                expression_values = {
-                    ':url': metadata['url'],
-                    ':title': metadata['title'],
-                    ':authors': metadata['authors'],
-                    ':date_published': metadata['date_published'],
-                    ':date_updated': metadata['date_updated'],
-                    ':tags': metadata['tags'],
-                    ':content': metadata['content'],
-                    ':last_crawled': datetime.utcnow().isoformat(),
-                    ':empty': '',
-                    ':zero': 0,
-                    ':source': 'aws-blog'
-                }
-                self.posts_needing_summaries += 1
-                self.posts_needing_classification += 1
-            else:
-                # Keep existing summary if content unchanged
-                update_expression = '''
-                    SET #url = :url,
-                        title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
-                        date_updated = :date_updated,
-                        tags = :tags,
-                        content = :content,
-                        last_crawled = :last_crawled,
-                        #source = :source
-                '''
-                expression_values = {
-                    ':url': metadata['url'],
-                    ':title': metadata['title'],
-                    ':authors': metadata['authors'],
-                    ':date_published': metadata['date_published'],
-                    ':date_updated': metadata['date_updated'],
-                    ':tags': metadata['tags'],
-                    ':content': metadata['content'],
-                    ':last_crawled': datetime.utcnow().isoformat(),
-                    ':source': 'aws-blog'
-                }
-            
-            # Use update_item to preserve voting fields
-            self.table.update_item(
-                Key={'post_id': post_id},
-                UpdateExpression=update_expression,
-                ExpressionAttributeNames={
-                    '#url': 'url',  # 'url' is a reserved word in DynamoDB
-                    '#source': 'source'
-                },
-                ExpressionAttributeValues=expression_values
-            )
-            
-            self.posts_processed += 1
-            return True
-            
-        except Exception as e:
-            print(f"Error saving to DynamoDB: {e}")
-            return False
-    
-    def crawl_all_posts(self, max_pages=None):
-        """Crawl all blog posts from all pages"""
-        print(f"Starting crawl of {self.base_url}")
-        current_url = self.base_url
-        page_num = 1
-        all_post_urls = set()
-        visited_pages = set()
-        
-        # Step 1: Collect all post URLs from all listing pages
-        while current_url and current_url not in visited_pages:
-            if max_pages and page_num > max_pages:
-                print(f"Reached max pages limit: {max_pages}")
-                break
-                
-            print(f"Fetching listing page {page_num}: {current_url}")
-            visited_pages.add(current_url)
-            html = self.get_page(current_url)
-            
-            if not html:
-                break
-            
-            # Extract post links from this page
-            post_links = self.extract_post_links(html)
-            print(f"Found {len(post_links)} posts on page {page_num}")
-            
-            # Only add valid blog post URLs
-            for link in post_links:
-                if link not in visited_pages and '/blogs/desktop-and-application-streaming/' in link:
-                    if '/category/' not in link and '/tag/'

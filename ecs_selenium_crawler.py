@@ -70,13 +70,13 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         try:
             driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            # Wait for page to load - increased timeout for slow-loading pages
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Give JavaScript time to render
-            time.sleep(2)
+            # Give JavaScript additional time to render dynamic content
+            time.sleep(3)
             
             # Extract author name
             authors = "AWS"  # Default
@@ -112,12 +112,14 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             # Extract content
             content = ""
             try:
-                # AWS blog content selectors
+                # AWS blog content selectors - expanded to catch more variations
                 content_selectors = [
                     "//div[contains(@class, 'blog-post-content')]",
                     "//article[contains(@class, 'blog-post')]",
                     "//div[contains(@class, 'entry-content')]",
                     "//div[@id='main-content']",
+                    "//div[contains(@class, 'post-content')]",
+                    "//div[contains(@class, 'content-column')]",
                     "//article",
                     "//main"
                 ]
@@ -127,13 +129,14 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         content_elem = driver.find_element(By.XPATH, selector)
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
-                            print(f"  Found content with selector: {selector}")
+                            print(f"  Found content with selector: {selector} (length: {len(content)})")
                             break
                     except NoSuchElementException:
                         continue
                 
                 # If no content found, try getting all text from body
                 if not content or len(content) < 100:
+                    print(f"  Falling back to body text extraction")
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
             except Exception as e:
@@ -144,6 +147,14 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             if len(content) > 3000:
                 content = content[:3000]
             
+            # Validate that we have meaningful content
+            if len(content) < 50:
+                print(f"  Warning: Content too short ({len(content)} chars), may indicate extraction failure")
+                if attempt < max_retries - 1:
+                    print(f"  Retrying...")
+                    time.sleep(3)
+                    continue
+            
             return {
                 'authors': authors,
                 'content': content
@@ -152,7 +163,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)
             else:
                 print(f"  Failed after {max_retries} attempts")
                 return None
@@ -160,7 +171,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         except Exception as e:
             print(f"  Error: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)
             else:
                 return None
     
@@ -178,13 +189,13 @@ def extract_page_content(driver, url, max_retries=3):
         try:
             driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(driver, 10).until(
+            # Wait for page to load - increased timeout for slow-loading pages
+            WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Give JavaScript time to render
-            time.sleep(2)
+            # Give JavaScript additional time to render dynamic content
+            time.sleep(3)
             
             # Extract author name
             authors = "AWS Builder Community"  # Default
@@ -235,12 +246,14 @@ def extract_page_content(driver, url, max_retries=3):
                         content_elem = driver.find_element(By.XPATH, selector)
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
+                            print(f"  Found content with selector: {selector} (length: {len(content)})")
                             break
                     except NoSuchElementException:
                         continue
                 
                 # If no content found, try getting all text from body
                 if not content or len(content) < 100:
+                    print(f"  Falling back to body text extraction")
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
             except Exception as e:
@@ -251,6 +264,14 @@ def extract_page_content(driver, url, max_retries=3):
             if len(content) > 3000:
                 content = content[:3000]
             
+            # Validate that we have meaningful content
+            if len(content) < 50:
+                print(f"  Warning: Content too short ({len(content)} chars), may indicate extraction failure")
+                if attempt < max_retries - 1:
+                    print(f"  Retrying...")
+                    time.sleep(3)
+                    continue
+            
             return {
                 'authors': authors,
                 'content': content
@@ -259,7 +280,7 @@ def extract_page_content(driver, url, max_retries=3):
         except TimeoutException:
             if attempt < max_retries - 1:
                 print(f"  Timeout on attempt {attempt + 1}, retrying...")
-                time.sleep(2)
+                time.sleep(3)
             else:
                 print(f"  Failed after {max_retries} attempts")
                 return None
@@ -267,7 +288,7 @@ def extract_page_content(driver, url, max_retries=3):
         except Exception as e:
             print(f"  Error: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(3)
             else:
                 return None
     
@@ -395,43 +416,7 @@ def main():
             if result:
                 # Update DynamoDB
                 if update_post_in_dynamodb(post_id, result['authors'], result['content']):
-                    print(f"  ✓ Updated: {result['authors']}")
+                    print(f"  ✓ Updated: {result['authors']} (content length: {len(result['content'])})")
                     posts_updated += 1
                 else:
-                    print(f"  ✗ Failed to update DynamoDB")
-                    posts_failed += 1
-            else:
-                print(f"  ✗ Failed to extract content")
-                posts_failed += 1
-            
-            posts_processed += 1
-            
-            # Small delay between requests
-            time.sleep(1)
-    
-    except Exception as e:
-        print(f"FATAL ERROR: {e}")
-        sys.exit(1)
-    
-    finally:
-        if driver:
-            driver.quit()
-            print("Chrome driver closed")
-    
-    # Invoke summary generator for the posts we just updated
-    if posts_updated > 0:
-        print(f"\n{posts_updated} posts updated - invoking summary generator")
-        invoke_summary_generator(posts_updated)
-    
-    # Print summary
-    print(f"\n=== Crawler Summary ===")
-    print(f"Posts processed: {posts_processed}")
-    print(f"Posts updated: {posts_updated}")
-    print(f"Posts failed: {posts_failed}")
-    
-    # Exit with appropriate code
-    if posts_failed > 0:
-        print("Exiting with failure code (some posts failed)")
-        sys.exit(1)
-    else:
-        print("Exiting with success code
+                
