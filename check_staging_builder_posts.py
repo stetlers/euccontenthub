@@ -17,7 +17,8 @@ diagnostics = {
     'date_parsing_issues': [],
     'storage_issues': [],
     'crawler_logic_issues': [],
-    'content_detection_issues': []
+    'content_detection_issues': [],
+    'metadata_extraction_issues': []
 }
 
 # Check for the specific Amazon WorkSpaces blog post from March 2, 2026
@@ -70,67 +71,163 @@ try:
             if web_response.status_code == 200:
                 soup = BeautifulSoup(web_response.content, 'html.parser')
                 
-                # Extract comprehensive metadata
-                title_tag = soup.find('h1') or soup.find('title')
-                date_meta = soup.find('meta', {'property': 'article:published_time'}) or \
-                           soup.find('meta', {'name': 'publishdate'}) or \
-                           soup.find('meta', {'name': 'date'}) or \
-                           soup.find('time', {'class': 'published'}) or \
-                           soup.find('time')
+                # Extract comprehensive metadata with multiple fallback strategies
+                title_tag = soup.find('h1') or soup.find('title') or soup.find('meta', {'property': 'og:title'})
+                
+                # Enhanced date extraction with multiple strategies
+                date_meta = (
+                    soup.find('meta', {'property': 'article:published_time'}) or 
+                    soup.find('meta', {'name': 'publishdate'}) or 
+                    soup.find('meta', {'name': 'date'}) or
+                    soup.find('meta', {'property': 'og:published_time'}) or
+                    soup.find('time', {'class': 'published'}) or 
+                    soup.find('time', {'datetime': True}) or
+                    soup.find('time')
+                )
                 
                 # Check for alternative date patterns in page content
                 date_patterns = [
                     r'Published[:\s]+(\d{4}-\d{2}-\d{2})',
                     r'Posted[:\s]+(\d{4}-\d{2}-\d{2})',
                     r'(\d{2}/\d{2}/\d{4})',
-                    r'(\w+ \d{1,2},? \d{4})'
+                    r'(\w+ \d{1,2},? \d{4})',
+                    r'datetime="([^"]+)"',
+                    r'"datePublished":\s*"([^"]+)"',
+                    r'"publishDate":\s*"([^"]+)"'
                 ]
                 
                 found_dates = []
                 page_text = soup.get_text()
+                page_html = str(soup)
                 for pattern in date_patterns:
-                    matches = re.findall(pattern, page_text)
+                    matches = re.findall(pattern, page_html + page_text)
                     found_dates.extend(matches)
                 
+                # Check for JSON-LD structured data
+                json_ld_scripts = soup.find_all('script', {'type': 'application/ld+json'})
+                json_ld_dates = []
+                for script in json_ld_scripts:
+                    try:
+                        data = json.loads(script.string)
+                        if isinstance(data, dict):
+                            if 'datePublished' in data:
+                                json_ld_dates.append(data['datePublished'])
+                            if 'dateCreated' in data:
+                                json_ld_dates.append(data['dateCreated'])
+                        elif isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict):
+                                    if 'datePublished' in item:
+                                        json_ld_dates.append(item['datePublished'])
+                    except json.JSONDecodeError:
+                        pass
+                
                 if title_tag:
-                    extracted_title = title_tag.get_text().strip()
+                    extracted_title = title_tag.get_text().strip() if hasattr(title_tag, 'get_text') else title_tag.get('content', '')
                     print(f"    ✓ Post EXISTS on web")
                     print(f"    Title: {extracted_title[:80]}...")
                     
+                    all_date_candidates = []
+                    
                     if date_meta:
                         date_content = date_meta.get('content') or date_meta.get('datetime') or date_meta.get_text()
+                        all_date_candidates.append(('metadata', date_content))
                         print(f"    ✓ Date metadata found: {date_content}")
-                        
-                        # Comprehensive date parsing
+                    
+                    if json_ld_dates:
+                        for jld in json_ld_dates:
+                            all_date_candidates.append(('json-ld', jld))
+                        print(f"    ✓ JSON-LD dates found: {json_ld_dates}")
+                    
+                    if found_dates:
+                        for fd in found_dates[:3]:
+                            all_date_candidates.append(('pattern', fd))
+                        print(f"    ✓ Pattern-matched dates: {found_dates[:3]}")
+                    
+                    # Comprehensive date parsing with all candidates
+                    parsed_dates = []
+                    for source, date_content in all_date_candidates:
                         try:
                             parsed_date = None
-                            if 'T' in str(date_content):
-                                parsed_date = datetime.fromisoformat(str(date_content).replace('Z', '+00:00').split('+')[0].split('T')[0] + 'T00:00:00')
-                            elif '-' in str(date_content):
-                                parsed_date = datetime.strptime(str(date_content)[:10], '%Y-%m-%d')
-                            elif '/' in str(date_content):
-                                parsed_date = datetime.strptime(str(date_content), '%m/%d/%Y')
+                            date_str = str(date_content).strip()
+                            
+                            # ISO 8601 format with timezone
+                            if 'T' in date_str and ('Z' in date_str or '+' in date_str or '-' in date_str[-6:]):
+                                parsed_date = datetime.fromisoformat(date_str.replace('Z', '+00:00').split('+')[0].split('-', 3)[:3][0] if date_str.count('-') > 2 else date_str.replace('Z', '+00:00'))
+                            # YYYY-MM-DD format
+                            elif re.match(r'^\d{4}-\d{2}-\d{2}', date_str):
+                                parsed_date = datetime.strptime(date_str[:10], '%Y-%m-%d')
+                            # MM/DD/YYYY format
+                            elif re.match(r'^\d{2}/\d{2}/\d{4}', date_str):
+                                parsed_date = datetime.strptime(date_str[:10], '%m/%d/%Y')
+                            # Month DD, YYYY format
+                            elif re.match(r'^\w+ \d{1,2},? \d{4}', date_str):
+                                # Try multiple month formats
+                                for fmt in ['%B %d, %Y', '%b %d, %Y', '%B %d %Y', '%b %d %Y']:
+                                    try:
+                                        parsed_date = datetime.strptime(date_str.split()[0:3].__str__().replace('[', '').replace(']', '').replace("'", '').replace(',', ' '), fmt)
+                                        break
+                                    except:
+                                        continue
                             
                             if parsed_date:
-                                parsed_date_str = parsed_date.strftime('%Y-%m-%d')
-                                print(f"    Parsed date: {parsed_date_str}")
-                                
-                                if parsed_date_str == target_date:
-                                    print(f"    ✓ Date matches expected: {target_date}")
-                                else:
-                                    print(f"    ⚠ Date mismatch: Expected {target_date}, found {parsed_date_str}")
-                                    diagnostics['date_parsing_issues'].append(f"Date mismatch: expected {target_date}, found {parsed_date_str}")
+                                parsed_dates.append({
+                                    'source': source,
+                                    'original': date_content,
+                                    'parsed': parsed_date,
+                                    'formatted': parsed_date.strftime('%Y-%m-%d')
+                                })
                         except Exception as e:
-                            print(f"    ✗ Date parsing error: {e}")
-                            diagnostics['date_parsing_issues'].append(f"Could not parse date '{date_content}': {e}")
+                            diagnostics['date_parsing_issues'].append(f"Could not parse date '{date_content}' from {source}: {e}")
+                    
+                    if parsed_dates:
+                        print(f"\n    Parsed dates ({len(parsed_dates)} total):")
+                        for pd in parsed_dates:
+                            match_indicator = "✓✓✓" if pd['formatted'] == target_date else "   "
+                            print(f"      {match_indicator} [{pd['source']}] {pd['formatted']} (from: {pd['original']})")
+                        
+                        # Check if any parsed date matches target
+                        matching_dates = [pd for pd in parsed_dates if pd['formatted'] == target_date]
+                        if matching_dates:
+                            print(f"\n    ✓✓✓ Date MATCHES expected: {target_date}")
+                            print(f"        Found in: {', '.join([pd['source'] for pd in matching_dates])}")
+                            print("\n    ✗✗ ROOT CAUSE INDICATOR: Post has correct date but NOT stored")
+                            print("       → Metadata extraction logic may have issues")
+                            print("       → Check crawler's date field selection priority")
+                            diagnostics['metadata_extraction_issues'].append(f"Correct date found in {len(matching_dates)} sources but post not stored")
+                        else:
+                            most_common_date = max(set([pd['formatted'] for pd in parsed_dates]), key=[pd['formatted'] for pd in parsed_dates].count)
+                            print(f"\n    ⚠ Date MISMATCH: Expected {target_date}, most common parsed: {most_common_date}")
+                            diagnostics['date_parsing_issues'].append(f"Date mismatch: expected {target_date}, found {most_common_date}")
                     else:
-                        print("    ⚠ No standard date metadata found")
-                        if found_dates:
-                            print(f"    Alternative date patterns found: {found_dates[:3]}")
-                        diagnostics['date_parsing_issues'].append("No standard date metadata in HTML")
+                        print(f"\n    ✗ Could not parse any dates from available metadata")
+                        if not date_meta and not json_ld_dates:
+                            print(f"    ✗✗ ROOT CAUSE: No standard date metadata in HTML")
+                            diagnostics['date_parsing_issues'].append("No parseable date metadata in HTML")
+                        else:
+                            print(f"    ✗✗ ROOT CAUSE: Date metadata exists but parsing failed")
+                            diagnostics['metadata_extraction_issues'].append("Date metadata exists but all parsing attempts failed")
+                    
+                    # Check for additional metadata that crawler might use
+                    print(f"\n    Additional metadata check:")
+                    author_meta = soup.find('meta', {'name': 'author'}) or soup.find('meta', {'property': 'article:author'})
+                    category_meta = soup.find('meta', {'property': 'article:section'}) or soup.find('meta', {'name': 'category'})
+                    description_meta = soup.find('meta', {'name': 'description'}) or soup.find('meta', {'property': 'og:description'})
+                    
+                    if author_meta:
+                        print(f"      Author: {author_meta.get('content', 'N/A')}")
+                    if category_meta:
+                        print(f"      Category: {category_meta.get('content', 'N/A')}")
+                    if description_meta:
+                        print(f"      Description: {description_meta.get('content', 'N/A')[:60]}...")
                     
                     print("\n    ✗✗ ROOT CAUSE INDICATOR: Post exists on web but NOT in database")
                     print("       → Crawler is NOT detecting/storing this post")
+                    print("       → Possible issues:")
+                    print("         1. Date extraction logic not handling this date format")
+                    print("         2. Date filtering excluding this specific date")
+                    print("         3. Metadata extraction selecting wrong date field")
+                    print("         4. URL pattern not matching crawler rules")
                     diagnostics['crawler_logic_issues'].append("Post exists on web but not stored in database")
                 else:
                     print("    ⚠ Could not extract title from page - possible HTML structure issue")
@@ -181,121 +278,4 @@ try:
             FilterExpression='contains(#url, :blog_path)',
             ExpressionAttributeNames={'#url': 'url'},
             ExpressionAttributeValues={':blog_path': url_components['base_path']},
-            ExclusiveStartKey=response['LastEvaluatedKey']
-        )
-        das_posts.extend(response['Items'])
-    
-    print(f"✓ Blog path IS being crawled: {len(das_posts)} total posts found")
-    
-    if len(das_posts) == 0:
-        print("  ✗✗ ROOT CAUSE: Blog path not in crawler's URL filter list")
-        diagnostics['url_filtering_issues'].append("Blog path not being crawled at all")
-    else:
-        print("  ✓ URL Filtering: Blog path is included in crawler scope")
-        
-        # Check for posts with similar URL components
-        similar_posts = []
-        for post in das_posts:
-            url = post.get('url', '')
-            matching_components = sum(1 for component in url_components['slug_parts'] if component in url.lower())
-            if matching_components >= 2:
-                similar_posts.append({
-                    'url': url,
-                    'title': post.get('title', 'N/A'),
-                    'date': post.get('date', 'N/A'),
-                    'matches': matching_components
-                })
-        
-        if similar_posts:
-            print(f"\n  Similar posts found (sharing URL components): {len(similar_posts)}")
-            for post in sorted(similar_posts, key=lambda x: x['matches'], reverse=True)[:5]:
-                print(f"    - [{post['date']}] {post['title'][:50]}...")
-                print(f"      Matching components: {post['matches']}")
-        else:
-            print(f"\n  ⚠ No similar posts found with shared URL components")
-            print(f"    This specific post type may have unique URL pattern")
-    
-    print()
-    
-except Exception as e:
-    print(f"✗ URL filtering analysis error: {str(e)}")
-    diagnostics['url_filtering_issues'].append(f"Analysis failed: {str(e)}")
-    print()
-
-# DIAGNOSTIC STEP 3: Date Parsing and Filtering Analysis
-print("\nSTEP 3: DATE PARSING AND FILTERING ANALYSIS")
-print("-" * 80)
-try:
-    if das_posts:
-        das_posts.sort(key=lambda x: x.get('date', ''), reverse=True)
-        
-        print(f"Total Desktop and Application Streaming posts: {len(das_posts)}")
-        
-        # Analyze date distribution
-        dates = [p.get('date', '') for p in das_posts if p.get('date')]
-        
-        if dates:
-            min_date = min(dates)
-            max_date = max(dates)
-            print(f"Date range in database: {min_date} to {max_date}")
-            
-            # Check if target date is within range
-            if min_date <= target_date <= max_date:
-                print(f"  ✓ Target date {target_date} IS within crawled date range")
-                posts_on_target = [p for p in das_posts if p.get('date', '').startswith(target_date)]
-                print(f"  Posts stored on {target_date}: {len(posts_on_target)}")
-                
-                if posts_on_target:
-                    print(f"    ✓ Other posts from target date ARE being stored:")
-                    for post in posts_on_target:
-                        print(f"      - {post.get('title', 'N/A')[:60]}...")
-                    print(f"    → Date filtering is working, but specific post is missing")
-                    diagnostics['crawler_logic_issues'].append("Date filtering works but specific post missing")
-                else:
-                    print(f"    ✗✗ ROOT CAUSE INDICATOR: No posts from {target_date} in database")
-                    print(f"       → Crawler may have date filter excluding this date")
-                    diagnostics['date_parsing_issues'].append(f"No posts from {target_date} despite date being in range")
-            else:
-                print(f"  ✗✗ ROOT CAUSE INDICATOR: Target date {target_date} is OUTSIDE crawled range")
-                print(f"     → Crawler's date filter may exclude future dates or this specific date")
-                diagnostics['date_parsing_issues'].append(f"Target date {target_date} outside range {min_date} to {max_date}")
-            
-            # Analyze date gaps
-            print("\n  Analyzing date continuity...")
-            dates_sorted = sorted(set(d[:10] for d in dates if len(d) >= 10))
-            
-            date_gaps = []
-            for i in range(len(dates_sorted) - 1):
-                try:
-                    date1 = datetime.strptime(dates_sorted[i], '%Y-%m-%d')
-                    date2 = datetime.strptime(dates_sorted[i + 1], '%Y-%m-%d')
-                    gap = (date1 - date2).days
-                    if gap > 30:
-                        date_gaps.append((dates_sorted[i + 1], dates_sorted[i], gap))
-                except:
-                    continue
-            
-            if date_gaps:
-                print(f"  ⚠ DATE GAPS DETECTED (>30 days): {len(date_gaps)} gaps found")
-                for start, end, days in date_gaps[:3]:
-                    print(f"    Gap: {start} to {end} = {days} days")
-                    if start <= target_date <= end:
-                        print(f"      ✗✗ ROOT CAUSE: Target date {target_date} falls in this gap!")
-                        diagnostics['date_parsing_issues'].append(f"Target date falls in {days}-day gap from {start} to {end}")
-                print(f"  → This indicates crawler execution gaps or date filter issues")
-            else:
-                print(f"  ✓ No significant date gaps detected")
-            
-            # Monthly distribution analysis
-            print("\n  Monthly post distribution:")
-            date_counts = {}
-            for post in das_posts:
-                date = post.get('date', '')
-                if date:
-                    month_key = date[:7]  # YYYY-MM
-                    date_counts[month_key] = date_counts.get(month_key, 0) + 1
-            
-            for month in sorted(date_counts.keys(), reverse=True)[:12]:
-                print(f"    {month}: {date_counts[month]} posts")
-            
-            #
+            ExclusiveStartKey=response

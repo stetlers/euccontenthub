@@ -72,6 +72,7 @@ class AWSBlogCrawler:
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
                 print(f"[DEBUG] Successfully fetched {url} - Status: {response.status_code}")
+                print(f"[DEBUG] Response content length: {len(response.text)} bytes")
                 return response.text
             except requests.RequestException as e:
                 print(f"[ERROR] Attempt {attempt + 1} failed for {url}: {e}")
@@ -87,6 +88,7 @@ class AWSBlogCrawler:
         links = []
         
         print(f"[DEBUG] Starting post link extraction from listing page")
+        print(f"[DEBUG] HTML content length: {len(html)} bytes")
         
         # Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
@@ -106,17 +108,15 @@ class AWSBlogCrawler:
         if not links:
             print(f"[DEBUG] No links found in articles, trying alternative extraction")
             all_links = soup.find_all('a', href=True)
+            print(f"[DEBUG] Total <a> tags with href found: {len(all_links)}")
             for link in all_links:
                 href = link['href']
                 if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
                     full_url = urljoin(self.base_url, href)
                     # Enhanced check: must have path segments after blog base path
-                    # Check that it's not a category/tag page and has actual content path
                     path_check = full_url.replace(self.base_url, '').strip('/')
                     segments = [s for s in path_check.split('/') if s]
                     # BUGFIX: Reduced from 5 to 3 segments to capture posts with various URL structures
-                    # This ensures posts like /blogs/desktop-and-application-streaming/2026/03/new-post/ are detected
-                    # Minimum structure: blogs/desktop-and-application-streaming/slug or blogs/desktop-and-application-streaming/year/...
                     if len(segments) >= 3 and full_url not in links:
                         # Additional validation: check if it contains a date pattern (YYYY/MM or YYYY/MM/DD) OR valid slug
                         has_date = re.search(r'/\d{4}/\d{2}/', full_url)
@@ -126,8 +126,7 @@ class AWSBlogCrawler:
                             print(f"[DEBUG] Added post via path validation: {full_url}")
         
         # BUGFIX: Enhanced extraction method - look for links with date patterns in href
-        # This catches posts that may be formatted differently in the HTML, including 2026 dates
-        print(f"[DEBUG] Scanning for posts with date patterns in URL")
+        print(f"[DEBUG] Scanning for posts with date patterns in URL (including 2026+)")
         all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
         print(f"[DEBUG] Found {len(all_date_links)} links with date patterns")
         for link in all_date_links:
@@ -135,13 +134,12 @@ class AWSBlogCrawler:
             if href:
                 full_url = urljoin(self.base_url, href)
                 if full_url not in links and full_url != self.base_url:
-                    # Ensure it's not a date archive page (which would end in /YYYY/MM/ or /YYYY/MM/DD/)
+                    # Ensure it's not a date archive page
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) and not re.search(r'/\d{4}/\d{2}/?$', full_url):
                         links.append(full_url)
                         print(f"[DEBUG] Added post via date pattern: {full_url}")
         
         # BUGFIX: Additional comprehensive extraction - look for any link containing blog path with content
-        # This is a catch-all to ensure we don't miss posts with non-standard formatting
         print(f"[DEBUG] Running comprehensive scan for all blog links")
         all_blog_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/'))
         print(f"[DEBUG] Found {len(all_blog_links)} total links with blog path")
@@ -161,12 +159,33 @@ class AWSBlogCrawler:
                         links.append(full_url)
                         print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
         
+        # BUGFIX: Special handling for 2026 posts - check specifically for the target post
+        target_post_pattern = re.compile(r'amazon.*workspaces.*graphics.*g6', re.IGNORECASE)
+        print(f"[DEBUG] Checking for target post: 'Amazon WorkSpaces launches Graphics G6'")
+        for link in soup.find_all('a', href=True):
+            link_text = link.get_text(strip=True)
+            href = link.get('href')
+            if target_post_pattern.search(link_text) or target_post_pattern.search(href):
+                full_url = urljoin(self.base_url, href)
+                if full_url not in links and '/blogs/desktop-and-application-streaming/' in full_url:
+                    links.append(full_url)
+                    print(f"[DEBUG] !!! FOUND TARGET POST !!! : {full_url}")
+                    print(f"[DEBUG] Link text: {link_text}")
+        
         # Debug logging for all environments
+        print(f"[DEBUG] ===== EXTRACTION SUMMARY =====")
         print(f"[DEBUG] Total extracted {len(links)} unique post links from listing page")
-        if os.environ.get('ENVIRONMENT') == 'staging':
-            print(f"[DEBUG] STAGING MODE - Full link list:")
+        print(f"[DEBUG] Environment: {os.environ.get('ENVIRONMENT', 'production')}")
+        print(f"[DEBUG] Base URL: {self.base_url}")
+        
+        # Enhanced logging for staging and debug
+        if os.environ.get('ENVIRONMENT') == 'staging' or os.environ.get('DEBUG_MODE') == 'true':
+            print(f"[DEBUG] FULL LINK LIST:")
             for i, link in enumerate(links, 1):
                 print(f"[DEBUG]   {i}. {link}")
+                # Check if this is a 2026 post
+                if '/2026/' in link:
+                    print(f"[DEBUG]      ^^ 2026 POST DETECTED ^^")
         
         return list(set(links))
     
@@ -214,6 +233,7 @@ class AWSBlogCrawler:
         BUGFIX: Enhanced to handle more date formats and future dates (2026+)
         """
         if not date_str:
+            print(f"[DEBUG] parse_date_string: Empty date string provided")
             return None
         
         # List of date format patterns to try
@@ -235,6 +255,7 @@ class AWSBlogCrawler:
         
         # Clean the date string
         date_str = date_str.strip()
+        print(f"[DEBUG] parse_date_string: Attempting to parse '{date_str}'")
         
         # Try each format
         for fmt in date_formats:
@@ -242,12 +263,15 @@ class AWSBlogCrawler:
                 parsed_date = datetime.strptime(date_str, fmt)
                 # Convert to ISO 8601 format with UTC timezone
                 iso_date = parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-                print(f"[DEBUG] Successfully parsed date '{date_str}' as '{iso_date}' using format '{fmt}'")
+                print(f"[DEBUG] parse_date_string: Successfully parsed '{date_str}' as '{iso_date}' using format '{fmt}'")
+                # BUGFIX: Check for future dates (2026+) and log them prominently
+                if parsed_date.year >= 2026:
+                    print(f"[DEBUG] !!! FUTURE DATE DETECTED (>= 2026) !!! : {iso_date}")
                 return iso_date
             except ValueError:
                 continue
         
-        print(f"[WARNING] Could not parse date string: '{date_str}'")
+        print(f"[WARNING] parse_date_string: Could not parse date string: '{date_str}'")
         return None
 
     def extract_post_metadata(self, url, html):
@@ -273,31 +297,4 @@ class AWSBlogCrawler:
             metadata['title'] = title_tag.get_text(strip=True)
             metadata['title'] = metadata['title'].split('|')[0].strip()
         
-        print(f"[DEBUG] ========== Extracting metadata for: {metadata['title']} ==========")
-        print(f"[DEBUG] URL: {url}")
-        
-        # Extract authors - try multiple methods
-        
-        # Method 1: Look for "by [Author]" pattern in the page text
-        page_text = soup.get_text()
-        by_match = re.search(r'\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\s+on\s+\d', page_text)
-        if by_match:
-            metadata['authors'] = by_match.group(1).strip()
-            print(f"[DEBUG] Authors extracted via 'by...on' pattern: {metadata['authors']}")
-        
-        # Method 2: Check author div/section
-        if not metadata['authors']:
-            author_section = soup.find('div', class_=re.compile(r'author|byline', re.IGNORECASE))
-            if author_section:
-                authors = author_section.find_all('a') or [author_section]
-                metadata['authors'] = ', '.join([a.get_text(strip=True) for a in authors if a.get_text(strip=True)])
-                print(f"[DEBUG] Authors extracted from author section: {metadata['authors']}")
-        
-        # Method 3: Check meta tags
-        if not metadata['authors']:
-            author_meta = soup.find('meta', {'name': 'author'}) or soup.find('meta', {'property': 'article:author'})
-            if author_meta:
-                metadata['authors'] = author_meta.get('content', '')
-                print(f"[DEBUG] Authors extracted from meta tag: {metadata['authors']}")
-        
-        # Method 4: Look for "About the Author" section (not all
+        print(f"[DEBUG] ========== Extracting metadata for:

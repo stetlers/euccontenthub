@@ -115,234 +115,266 @@ def is_aws_blog_post(url):
     return is_aws_blog
 
 
-def extract_aws_blog_content(driver, url, max_retries=3):
+def verify_url_accessibility(driver, url):
     """
-    Extract author and content from an AWS blog post
+    Verify that a URL is accessible and returns valid content
     
     Returns:
-        dict: {'authors': str, 'content': str} or None if extraction fails
+        dict: {'accessible': bool, 'status_message': str, 'redirected_url': str}
     """
-    print(f"  DEBUG: Starting AWS blog content extraction for: {url}")
-    log_to_cloudwatch(f"Starting AWS blog content extraction for: {url}", 'INFO')
+    print(f"  DEBUG: Verifying URL accessibility: {url}")
+    log_to_cloudwatch(f"Verifying URL accessibility: {url}", 'DEBUG')
     
-    for attempt in range(max_retries):
-        try:
-            print(f"  DEBUG: Attempt {attempt + 1}/{max_retries}: Loading {url}")
-            log_to_cloudwatch(f"Attempt {attempt + 1}/{max_retries}: Loading {url}", 'DEBUG')
-            driver.get(url)
-            
-            # Wait for page to load
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
-            
-            # Give JavaScript time to render
-            time.sleep(2)
-            
-            # Check page title and URL for debugging
-            page_title = driver.title
-            current_url = driver.current_url
-            print(f"  DEBUG: Page title: {page_title}")
-            print(f"  DEBUG: Current URL: {current_url}")
-            log_to_cloudwatch(f"Page title: {page_title}, Current URL: {current_url}", 'DEBUG')
-            
-            # Check for 404 or error pages
-            if "404" in page_title.lower() or "not found" in page_title.lower():
-                print(f"  WARNING: Page appears to be 404")
-                log_to_cloudwatch(f"Page appears to be 404: {url}", 'WARNING')
-            
-            # Extract author name
-            authors = "AWS"  # Default
-            try:
-                # AWS blog author selectors
-                author_selectors = [
-                    "//div[contains(@class, 'blog-post-meta')]//a[contains(@href, '/author/')]",
-                    "//span[contains(@class, 'author')]",
-                    "//div[contains(@class, 'author')]//a",
-                    "//a[contains(@rel, 'author')]",
-                    "//meta[@name='author']",
-                    "//span[@class='author']",
-                    "//div[@class='author']",
-                    "//div[contains(@class, 'byline')]//a",
-                    "//div[contains(@class, 'post-author')]"
-                ]
-                
-                for selector in author_selectors:
-                    try:
-                        if selector.startswith("//meta"):
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.get_attribute('content')
-                        else:
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.text.strip()
-                        
-                        if authors and authors != "AWS":
-                            print(f"  DEBUG: Found author with selector: {selector} - '{authors}'")
-                            log_to_cloudwatch(f"Found author: {authors} with selector: {selector}", 'DEBUG')
-                            break
-                    except NoSuchElementException:
-                        continue
-                
-                if authors == "AWS":
-                    print(f"  WARNING: Could not find specific author, using default")
-                    log_to_cloudwatch(f"Could not find specific author for {url}, using default", 'WARNING')
-                    
-            except Exception as e:
-                print(f"  WARNING: Could not extract author: {e}")
-                log_to_cloudwatch(f"Could not extract author: {e}", 'WARNING')
-            
-            # Extract content
-            content = ""
-            try:
-                # AWS blog content selectors
-                content_selectors = [
-                    "//div[contains(@class, 'blog-post-content')]",
-                    "//article[contains(@class, 'blog-post')]",
-                    "//div[contains(@class, 'entry-content')]",
-                    "//div[@id='main-content']",
-                    "//article",
-                    "//main",
-                    "//div[contains(@class, 'post-content')]",
-                    "//div[@id='content']",
-                    "//section[contains(@class, 'content')]"
-                ]
-                
-                for selector in content_selectors:
-                    try:
-                        content_elem = driver.find_element(By.XPATH, selector)
-                        content = content_elem.text.strip()
-                        if content and len(content) > 100:  # Ensure we got substantial content
-                            print(f"  DEBUG: Found content with selector: {selector} (length: {len(content)})")
-                            log_to_cloudwatch(f"Found content with selector: {selector} (length: {len(content)})", 'DEBUG')
-                            break
-                    except NoSuchElementException:
-                        continue
-                
-                # If no content found, try getting all text from body
-                if not content or len(content) < 100:
-                    print(f"  WARNING: Content too short, trying body text")
-                    log_to_cloudwatch(f"Content too short, trying body text for {url}", 'WARNING')
-                    body = driver.find_element(By.TAG_NAME, "body")
-                    content = body.text.strip()
-                    print(f"  DEBUG: Body text length: {len(content)}")
-                    log_to_cloudwatch(f"Body text length: {len(content)}", 'DEBUG')
-                    
-            except Exception as e:
-                print(f"  WARNING: Could not extract content: {e}")
-                log_to_cloudwatch(f"Could not extract content: {e}", 'WARNING')
-                content = "Content extraction failed. Visit the full article on AWS Blog."
-            
-            # Validate content quality
-            if len(content) < 100:
-                print(f"  WARNING: Content extraction may have failed (length: {len(content)})")
-                log_to_cloudwatch(f"Content extraction may have failed (length: {len(content)}) for {url}", 'WARNING')
-                try:
-                    page_source_preview = driver.page_source[:1000]
-                    print(f"  DEBUG: Page source preview: {page_source_preview}")
-                    log_to_cloudwatch(f"Page source preview: {page_source_preview}", 'DEBUG')
-                except Exception as e:
-                    print(f"  DEBUG: Could not retrieve page source: {e}")
-            
-            # Limit content to first 3000 characters
-            if len(content) > 3000:
-                content = content[:3000]
-            
+    try:
+        driver.get(url)
+        
+        # Wait for page to load
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        
+        time.sleep(2)
+        
+        page_title = driver.title
+        current_url = driver.current_url
+        
+        print(f"  DEBUG: Page loaded - Title: '{page_title}', URL: '{current_url}'")
+        log_to_cloudwatch(f"Page loaded - Title: '{page_title}', URL: '{current_url}'", 'DEBUG')
+        
+        # Check for error indicators
+        error_indicators = ['404', 'not found', 'page not found', 'error']
+        is_error = any(indicator in page_title.lower() for indicator in error_indicators)
+        
+        if is_error:
+            print(f"  WARNING: Page appears to be an error page (title: '{page_title}')")
+            log_to_cloudwatch(f"Error page detected - Title: '{page_title}', URL: {url}", 'WARNING')
             return {
-                'authors': authors,
-                'content': content
+                'accessible': False,
+                'status_message': f"Error page detected (title: '{page_title}')",
+                'redirected_url': current_url
             }
-            
-        except TimeoutException:
-            print(f"  WARNING: Timeout on attempt {attempt + 1}")
-            log_to_cloudwatch(f"Timeout on attempt {attempt + 1} for {url}", 'WARNING')
-            if attempt < max_retries - 1:
-                print(f"  Retrying after timeout...")
-                time.sleep(2)
-            else:
-                print(f"  ERROR: FAILED after {max_retries} timeout attempts")
-                log_to_cloudwatch(f"FAILED after {max_retries} timeout attempts for {url}", 'ERROR')
-                return None
-                
-        except Exception as e:
-            print(f"  ERROR: Error on attempt {attempt + 1}: {e}")
-            log_to_cloudwatch(f"Error on attempt {attempt + 1} for {url}: {e}", 'ERROR')
-            if attempt < max_retries - 1:
-                time.sleep(2)
-            else:
-                print(f"  ERROR: FAILED after {max_retries} attempts")
-                log_to_cloudwatch(f"FAILED after {max_retries} attempts for {url}", 'ERROR')
-                return None
-    
-    return None
+        
+        # Check if URL was redirected
+        if current_url != url:
+            print(f"  INFO: URL was redirected from {url} to {current_url}")
+            log_to_cloudwatch(f"URL redirected from {url} to {current_url}", 'INFO')
+        
+        # Check if page has content
+        body = driver.find_element(By.TAG_NAME, "body")
+        body_text = body.text.strip()
+        
+        if len(body_text) < 50:
+            print(f"  WARNING: Page has minimal content (length: {len(body_text)})")
+            log_to_cloudwatch(f"Minimal content detected (length: {len(body_text)}) for {url}", 'WARNING')
+            return {
+                'accessible': True,
+                'status_message': f"Page accessible but has minimal content (length: {len(body_text)})",
+                'redirected_url': current_url
+            }
+        
+        print(f"  DEBUG: URL is accessible with content (length: {len(body_text)})")
+        log_to_cloudwatch(f"URL is accessible with content (length: {len(body_text)})", 'DEBUG')
+        
+        return {
+            'accessible': True,
+            'status_message': 'Page accessible with content',
+            'redirected_url': current_url
+        }
+        
+    except TimeoutException:
+        print(f"  ERROR: Timeout while accessing URL: {url}")
+        log_to_cloudwatch(f"Timeout while accessing URL: {url}", 'ERROR')
+        return {
+            'accessible': False,
+            'status_message': 'Timeout while loading page',
+            'redirected_url': None
+        }
+    except Exception as e:
+        print(f"  ERROR: Exception while verifying URL accessibility: {e}")
+        log_to_cloudwatch(f"Exception while verifying URL accessibility for {url}: {e}", 'ERROR')
+        return {
+            'accessible': False,
+            'status_message': f'Exception: {str(e)}',
+            'redirected_url': None
+        }
 
 
-def extract_page_content(driver, url, max_retries=3):
+def extract_aws_blog_metadata(driver, url):
     """
-    Extract author and content from a Builder.AWS page
+    Extract comprehensive metadata from AWS blog post for debugging
     
     Returns:
-        dict: {'authors': str, 'content': str} or None if extraction fails
+        dict: Complete metadata including publication date, author, categories, etc.
     """
-    for attempt in range(max_retries):
+    print(f"  DEBUG: Extracting comprehensive metadata from: {url}")
+    log_to_cloudwatch(f"Extracting comprehensive metadata from: {url}", 'INFO')
+    
+    metadata = {
+        'url': url,
+        'title': None,
+        'publication_date': None,
+        'modified_date': None,
+        'author': None,
+        'categories': [],
+        'tags': [],
+        'description': None,
+        'og_metadata': {},
+        'twitter_metadata': {},
+        'schema_metadata': {}
+    }
+    
+    try:
+        # Extract page title
+        metadata['title'] = driver.title
+        print(f"  DEBUG: Title: {metadata['title']}")
+        
+        # Extract meta tags
+        meta_tags = driver.find_elements(By.TAG_NAME, "meta")
+        for meta in meta_tags:
+            name = meta.get_attribute('name') or meta.get_attribute('property')
+            content = meta.get_attribute('content')
+            
+            if not name or not content:
+                continue
+            
+            # Publication date
+            if name in ['article:published_time', 'datePublished', 'date', 'publish-date']:
+                metadata['publication_date'] = content
+                print(f"  DEBUG: Found publication date: {content} (from {name})")
+                log_to_cloudwatch(f"Publication date found: {content} (from {name})", 'DEBUG')
+            
+            # Modified date
+            if name in ['article:modified_time', 'dateModified', 'lastmod']:
+                metadata['modified_date'] = content
+                print(f"  DEBUG: Found modified date: {content} (from {name})")
+            
+            # Author
+            if name in ['author', 'article:author']:
+                metadata['author'] = content
+                print(f"  DEBUG: Found author: {content} (from {name})")
+            
+            # Description
+            if name in ['description', 'og:description', 'twitter:description']:
+                metadata['description'] = content
+            
+            # Open Graph metadata
+            if name and name.startswith('og:'):
+                metadata['og_metadata'][name] = content
+            
+            # Twitter metadata
+            if name and name.startswith('twitter:'):
+                metadata['twitter_metadata'][name] = content
+        
+        # Extract structured data (JSON-LD)
         try:
-            print(f"  Attempt {attempt + 1}/{max_retries}: Loading {url}")
-            log_to_cloudwatch(f"Attempt {attempt + 1}/{max_retries}: Loading {url}", 'INFO')
-            driver.get(url)
+            script_tags = driver.find_elements(By.XPATH, "//script[@type='application/ld+json']")
+            for script in script_tags:
+                try:
+                    json_data = json.loads(script.get_attribute('innerHTML'))
+                    if isinstance(json_data, dict):
+                        if json_data.get('@type') in ['BlogPosting', 'Article', 'NewsArticle']:
+                            metadata['schema_metadata'] = json_data
+                            if 'datePublished' in json_data and not metadata['publication_date']:
+                                metadata['publication_date'] = json_data['datePublished']
+                                print(f"  DEBUG: Found publication date from schema: {json_data['datePublished']}")
+                                log_to_cloudwatch(f"Publication date from schema: {json_data['datePublished']}", 'DEBUG')
+                            if 'author' in json_data and not metadata['author']:
+                                author_data = json_data['author']
+                                if isinstance(author_data, dict):
+                                    metadata['author'] = author_data.get('name', 'AWS')
+                                elif isinstance(author_data, str):
+                                    metadata['author'] = author_data
+                                print(f"  DEBUG: Found author from schema: {metadata['author']}")
+                except json.JSONDecodeError:
+                    continue
+        except Exception as e:
+            print(f"  WARNING: Could not extract structured data: {e}")
+        
+        # Try to find publication date in page content if not found in meta
+        if not metadata['publication_date']:
+            date_selectors = [
+                "//time[@datetime]",
+                "//span[contains(@class, 'date')]",
+                "//div[contains(@class, 'date')]",
+                "//span[contains(@class, 'published')]",
+                "//div[contains(@class, 'post-date')]",
+                "//div[contains(@class, 'blog-post-meta')]//time"
+            ]
             
-            # Wait for page to load - increased timeout for dynamic content
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
-            
-            # Give JavaScript time to render - increased for dynamic content
-            time.sleep(4)
-            
-            # Additional wait for content to be loaded (check for specific elements)
-            try:
-                WebDriverWait(driver, 10).until(
-                    lambda d: len(d.find_elements(By.TAG_NAME, "p")) > 0 or 
-                             len(d.find_elements(By.TAG_NAME, "article")) > 0
-                )
-                print(f"  Content elements detected on page")
-                log_to_cloudwatch(f"Content elements detected on page: {url}", 'DEBUG')
-            except TimeoutException:
-                print(f"  Warning: Content elements not detected within timeout, proceeding anyway")
-                log_to_cloudwatch(f"Content elements not detected within timeout for {url}", 'WARNING')
-            
-            # Debug: Check if page loaded correctly
-            page_title = driver.title
-            print(f"  Page title: {page_title}")
-            current_url = driver.current_url
-            print(f"  Current URL: {current_url}")
-            log_to_cloudwatch(f"Page title: {page_title}, Current URL: {current_url}", 'DEBUG')
-            
-            # Check for common error indicators
-            if "404" in page_title.lower() or "not found" in page_title.lower():
-                print(f"  Warning: Page appears to be a 404 error")
-                log_to_cloudwatch(f"Page appears to be 404: {url}", 'WARNING')
-                # Check if URL was redirected
-                if current_url != url:
-                    print(f"  Warning: URL was redirected from {url} to {current_url}")
-                    log_to_cloudwatch(f"URL redirected from {url} to {current_url}", 'WARNING')
-            
-            # Extract author name
-            authors = "AWS Builder Community"  # Default
-            try:
-                # Try multiple selectors for author
-                # Builder.AWS uses CSS modules with dynamic class names like _profile-name_xxxxx
-                author_selectors = [
-                    "//span[contains(@class, 'profile-name')]//span[contains(@class, 'ellipse-text')]",
-                    "//span[contains(@class, 'profile-name')]",
-                    "//span[contains(@class, '_profile-name')]",
-                    "//div[contains(@class, 'author-name')]",
-                    "//div[contains(@class, 'byline')]//span",
-                    "//meta[@name='author']",
-                    "//span[contains(@class, 'author')]",
-                    "//div[contains(@class, 'author')]",
-                    "//a[contains(@class, 'author')]",
-                    "//span[contains(@data-testid, 'author')]",
-                    "//div[contains(@class, 'post-author')]//span",
-                    "//div[contains(@class, 'contributor')]//span",
-                    "//a[contains(@href, '/contributors/')]",
-                    "//div[contains(@class, 'metadata')]//a"
-                ]
+            for selector in date_selectors:
+                try:
+                    date_elem = driver.find_element(By.XPATH, selector)
+                    datetime_attr = date_elem.get_attribute('datetime')
+                    if datetime_attr:
+                        metadata['publication_date'] = datetime_attr
+                        print(f"  DEBUG: Found publication date in page: {datetime_attr}")
+                        log_to_cloudwatch(f"Publication date found in page: {datetime_attr}", 'DEBUG')
+                        break
+                    else:
+                        date_text = date_elem.text.strip()
+                        if date_text:
+                            metadata['publication_date'] = date_text
+                            print(f"  DEBUG: Found publication date text: {date_text}")
+                            log_to_cloudwatch(f"Publication date text found: {date_text}", 'DEBUG')
+                            break
+                except NoSuchElementException:
+                    continue
+        
+        # Extract categories/tags
+        try:
+            category_elems = driver.find_elements(By.XPATH, "//a[contains(@href, '/category/') or contains(@href, '/tag/')]")
+            for elem in category_elems:
+                text = elem.text.strip()
+                if text:
+                    if '/category/' in elem.get_attribute('href'):
+                        metadata['categories'].append(text)
+                    else:
+                        metadata['tags'].append(text)
+        except Exception as e:
+            print(f"  WARNING: Could not extract categories/tags: {e}")
+        
+        # Log complete metadata
+        print(f"  DEBUG: Complete metadata extracted:")
+        print(f"    Title: {metadata['title']}")
+        print(f"    Publication Date: {metadata['publication_date']}")
+        print(f"    Modified Date: {metadata['modified_date']}")
+        print(f"    Author: {metadata['author']}")
+        print(f"    Categories: {metadata['categories']}")
+        print(f"    Tags: {metadata['tags']}")
+        
+        log_to_cloudwatch(f"Complete metadata: {json.dumps(metadata, default=str)}", 'INFO')
+        
+        return metadata
+        
+    except Exception as e:
+        print(f"  ERROR: Failed to extract metadata: {e}")
+        log_to_cloudwatch(f"Failed to extract metadata from {url}: {e}", 'ERROR')
+        return metadata
+
+
+def check_date_filtering(publication_date_str):
+    """
+    Debug date filtering logic to ensure posts are not filtered incorrectly
+    
+    Returns:
+        dict: {'should_include': bool, 'parsed_date': datetime, 'reason': str}
+    """
+    print(f"  DEBUG: Checking date filtering for: {publication_date_str}")
+    log_to_cloudwatch(f"Checking date filtering for: {publication_date_str}", 'DEBUG')
+    
+    if not publication_date_str:
+        print(f"  DEBUG: No publication date provided")
+        log_to_cloudwatch("No publication date provided for filtering check", 'DEBUG')
+        return {
+            'should_include': True,
+            'parsed_date': None,
+            'reason': 'No publication date available, including by default'
+        }
+    
+    try:
+        # Parse the date
+        parsed_date = date_parser.parse(publication_date_str)
+        
+        # Make timezone-aware if not already
+        if parsed_date.tzinfo is None:
+            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
