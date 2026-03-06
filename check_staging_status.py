@@ -9,7 +9,8 @@ from decimal import Decimal
 import re
 import logging
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
+from bs4 import BeautifulSoup
 
 # Configure logging for crawler diagnostics
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -313,5 +314,4 @@ for url in sample_urls:
 
 # ============================================================================
 # NEW: Check for posts with similar titles (near-matches)
-# ============================================================================
-print("\n" + "=" * 80)
+# 

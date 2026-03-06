@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from botocore.exceptions import ClientError
 import json
 import sys
+import requests
+from urllib.parse import urlparse
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
@@ -74,6 +76,54 @@ def check_posts_by_url_pattern(url_pattern):
         return response.get('Items', [])
     except ClientError as e:
         print(f"Error searching by URL pattern: {e}")
+        return []
+
+def check_posts_by_source(source_pattern):
+    """Search for posts by source pattern"""
+    try:
+        response = table.scan(
+            FilterExpression='contains(#source, :pattern)',
+            ExpressionAttributeNames={'#source': 'source'},
+            ExpressionAttributeValues={':pattern': source_pattern}
+        )
+        return response.get('Items', [])
+    except ClientError as e:
+        print(f"Error searching by source pattern: {e}")
+        return []
+
+def verify_url_accessibility(url):
+    """Verify if a URL is accessible via HTTP request"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (compatible; AWS Blog Crawler Debug/1.0)'
+        }
+        response = requests.head(url, headers=headers, timeout=10, allow_redirects=True)
+        return {
+            'accessible': response.status_code == 200,
+            'status_code': response.status_code,
+            'final_url': response.url,
+            'headers': dict(response.headers)
+        }
+    except requests.RequestException as e:
+        return {
+            'accessible': False,
+            'error': str(e)
+        }
+
+def check_staging_domain_posts():
+    """Check for posts from staging.awseuccontent.com domain"""
+    try:
+        response = table.scan(
+            FilterExpression='contains(#source, :domain) OR contains(#url, :domain)',
+            ExpressionAttributeNames={
+                '#source': 'source',
+                '#url': 'url'
+            },
+            ExpressionAttributeValues={':domain': 'staging.awseuccontent.com'}
+        )
+        return response.get('Items', [])
+    except ClientError as e:
+        print(f"Error checking staging domain posts: {e}")
         return []
 
 def analyze_date_distribution(all_posts):
@@ -178,6 +228,39 @@ def check_for_exact_url(url_fragment):
         print(f"Error checking for exact URL: {e}")
         return []
 
+def analyze_date_filtering_logic(all_posts):
+    """Analyze potential date filtering issues in crawler"""
+    current_date = datetime.now()
+    
+    # Group posts by relationship to current date
+    past_posts = []
+    future_posts = []
+    invalid_dates = []
+    
+    for post in all_posts:
+        date_str = post.get('date_published', '')
+        if not date_str or date_str == 'Unknown':
+            invalid_dates.append(post)
+            continue
+        
+        try:
+            post_date = datetime.strptime(date_str, '%Y-%m-%d')
+            if post_date > current_date:
+                future_posts.append((post_date, post))
+            else:
+                past_posts.append((post_date, post))
+        except ValueError:
+            invalid_dates.append(post)
+    
+    return {
+        'past_posts_count': len(past_posts),
+        'future_posts_count': len(future_posts),
+        'invalid_dates_count': len(invalid_dates),
+        'latest_past_date': max([d for d, _ in past_posts]) if past_posts else None,
+        'earliest_future_date': min([d for d, _ in future_posts]) if future_posts else None,
+        'future_posts': sorted(future_posts, key=lambda x: x[0])
+    }
+
 try:
     # Get total count
     response = table.scan(Select='COUNT')
@@ -207,13 +290,29 @@ try:
     
     print(f"Total posts loaded for analysis: {len(all_posts)}")
     
+    # Analyze all attributes in the table
+    print(f"\n[SCHEMA ANALYSIS] Analyzing table structure...")
+    all_attributes, attribute_examples = check_all_attributes(all_posts)
+    print(f"  Attributes found in posts: {', '.join(all_attributes)}")
+    print(f"\n  Sample values:")
+    for attr, example in attribute_examples.items():
+        print(f"    - {attr}: {example}")
+    
     # Count by source
     aws_blog_count = sum(1 for p in all_posts if 'aws.amazon.com' in p.get('source', ''))
     builder_count = sum(1 for p in all_posts if 'builder.aws.com' in p.get('source', ''))
+    staging_count = sum(1 for p in all_posts if 'staging.awseuccontent.com' in p.get('source', '') or 'staging.awseuccontent.com' in p.get('url', ''))
     
     print(f"\nPosts by source:")
     print(f"  AWS Blog: {aws_blog_count}")
     print(f"  Builder.AWS: {builder_count}")
+    print(f"  Staging.awseuccontent.com: {staging_count}")
+    
+    # Analyze all source domains
+    print(f"\n[SOURCE ANALYSIS] All source domains found:")
+    source_domains = analyze_source_patterns(all_posts)
+    for domain, count in list(source_domains.items())[:10]:
+        print(f"  - {domain}: {count} post(s)")
     
     # Debug: Check for the specific missing post
     print("\n" + "="*80)
@@ -279,64 +378,4 @@ try:
         print("  ⚠️  No posts found with 'workspaces' in URL")
     
     # Check for posts on March 2, 2026
-    target_date = '2026-03-02'
-    print(f"\n[TEST 4] Checking for posts published on {target_date}...")
-    posts_on_date = check_posts_by_date(target_date)
-    
-    if posts_on_date:
-        print(f"  ✓ Found {len(posts_on_date)} post(s) on {target_date}:")
-        for post in posts_on_date:
-            print(f"    - {post.get('title', 'No title')}")
-            print(f"      Source: {post.get('source', 'Unknown')}")
-            print(f"      URL: {post.get('url', 'N/A')}")
-    else:
-        print(f"  ❌ ISSUE DETECTED: No posts found on {target_date}")
-    
-    # Check for posts in March 2026
-    print(f"\n[TEST 5] Checking for posts in March 2026 (2026-03-01 to 2026-03-31)...")
-    march_2026_posts = check_posts_by_date_range('2026-03-01', '2026-03-31')
-    
-    if march_2026_posts:
-        print(f"  ✓ Found {len(march_2026_posts)} post(s) in March 2026:")
-        for post in sorted(march_2026_posts, key=lambda x: x.get('date_published', '')):
-            print(f"    - [{post.get('date_published')}] {post.get('title', 'No title')[:60]}...")
-    else:
-        print(f"  ❌ ISSUE DETECTED: No posts found in March 2026")
-    
-    # Check for posts in 2026
-    print(f"\n[TEST 6] Checking for ANY posts in 2026...")
-    posts_2026 = [p for p in all_posts if p.get('date_published', '').startswith('2026')]
-    
-    if posts_2026:
-        print(f"  ✓ Found {len(posts_2026)} post(s) in 2026:")
-        date_dist_2026 = {}
-        for post in posts_2026:
-            date = post.get('date_published', 'Unknown')
-            date_dist_2026[date] = date_dist_2026.get(date, 0) + 1
-        
-        for date in sorted(date_dist_2026.keys()):
-            print(f"    - {date}: {date_dist_2026[date]} post(s)")
-    else:
-        print(f"  ❌ CRITICAL ISSUE: No posts found in 2026 at all!")
-        print(f"     This strongly suggests date filtering is blocking 2026 dates")
-    
-    # Check recent posts (last 7 days from now)
-    print(f"\n[TEST 7] Checking for posts in the last 7 days from today ({datetime.now().strftime('%Y-%m-%d')})...")
-    recent_posts = check_recent_posts(days=7)
-    
-    if recent_posts:
-        print(f"  ✓ Found {len(recent_posts)} recent post(s):")
-        for post in sorted(recent_posts, key=lambda x: x.get('date_published', ''), reverse=True)[:10]:
-            print(f"    - [{post.get('date_published')}] {post.get('title', 'No title')[:60]}...")
-    else:
-        print("  ⚠️  No recent posts found in the last 7 days")
-    
-    # Check for future dates (crawler date filtering issue)
-    current_date = datetime.now().strftime('%Y-%m-%d')
-    print(f"\n[TEST 8] Checking for posts with future dates (beyond {current_date})...")
-    future_posts = [p for p in all_posts if p.get('date_published', '') > current_date]
-    
-    if future_posts:
-        print(f"  ⚠️  Found {len(future_posts)} post(s) with future dates:")
-        for post in sorted(future_posts, key=lambda x: x.get('date_published', ''), reverse=True)[:10]:
-            print(f"    - [{post.get('date_published')}] {post.get('title', '
+    target_date = '2026

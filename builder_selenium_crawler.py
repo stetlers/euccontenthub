@@ -220,7 +220,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 is_target_post = (
                     ('2026-03-02' in published_date) or
                     ('march' in published_date.lower() and '2' in published_date and '2026' in published_date) or
-                    ('workspaces' in title.lower() and 'graphics' in title.lower() and 'g6' in title.lower())
+                    ('workspaces' in title.lower() and 'graphics' in title.lower() and ('g6' in title.lower() or 'gr6' in title.lower() or 'g6f' in title.lower()))
                 )
                 
                 if is_target_post:
@@ -356,6 +356,4 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     should_include = True
                     inclusion_reason = 'builder_euc'
                     included_by_reason['builder_euc'] += 1
-                elif is_aws_blog and is_das_category:
-                    should_include = True
-                    inclusion_reason = 'aws_
+                elif is_aws_blog and is_das

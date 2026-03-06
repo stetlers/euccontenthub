@@ -83,14 +83,18 @@ class AWSBlogCrawler:
                     return None
     
     def extract_post_links(self, html):
-        """Extract all blog post links from the listing page"""
+        """
+        Extract all blog post links from the listing page
+        BUGFIX: Enhanced extraction logic to capture posts with various URL structures,
+        including 2026+ posts and WorkSpaces Graphics G6 announcements
+        """
         soup = BeautifulSoup(html, 'html.parser')
         links = []
         
         print(f"[DEBUG] Starting post link extraction from listing page")
         print(f"[DEBUG] HTML content length: {len(html)} bytes")
         
-        # Find all article links
+        # Method 1: Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
         print(f"[DEBUG] Found {len(articles)} article containers")
         
@@ -104,7 +108,7 @@ class AWSBlogCrawler:
                     links.append(full_url)
                     print(f"[DEBUG] Found post from article container: {full_url}")
         
-        # Alternative: find all links that match the blog pattern
+        # Method 2: Alternative extraction for links matching blog pattern
         if not links:
             print(f"[DEBUG] No links found in articles, trying alternative extraction")
             all_links = soup.find_all('a', href=True)
@@ -113,19 +117,17 @@ class AWSBlogCrawler:
                 href = link['href']
                 if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
                     full_url = urljoin(self.base_url, href)
-                    # Enhanced check: must have path segments after blog base path
                     path_check = full_url.replace(self.base_url, '').strip('/')
                     segments = [s for s in path_check.split('/') if s]
-                    # BUGFIX: Reduced from 5 to 3 segments to capture posts with various URL structures
+                    # BUGFIX: Reduced segment requirement from 5 to 3 for various URL structures
                     if len(segments) >= 3 and full_url not in links:
-                        # Additional validation: check if it contains a date pattern (YYYY/MM or YYYY/MM/DD) OR valid slug
                         has_date = re.search(r'/\d{4}/\d{2}/', full_url)
                         has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
                         if has_date or has_slug:
                             links.append(full_url)
                             print(f"[DEBUG] Added post via path validation: {full_url}")
         
-        # BUGFIX: Enhanced extraction method - look for links with date patterns in href
+        # Method 3: BUGFIX - Enhanced extraction for date-patterned URLs (including 2026+)
         print(f"[DEBUG] Scanning for posts with date patterns in URL (including 2026+)")
         all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
         print(f"[DEBUG] Found {len(all_date_links)} links with date patterns")
@@ -137,9 +139,13 @@ class AWSBlogCrawler:
                     # Ensure it's not a date archive page
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) and not re.search(r'/\d{4}/\d{2}/?$', full_url):
                         links.append(full_url)
-                        print(f"[DEBUG] Added post via date pattern: {full_url}")
+                        # BUGFIX: Log 2026+ posts explicitly
+                        if '/2026/' in full_url:
+                            print(f"[DEBUG] !!! 2026 POST FOUND VIA DATE PATTERN !!! : {full_url}")
+                        else:
+                            print(f"[DEBUG] Added post via date pattern: {full_url}")
         
-        # BUGFIX: Additional comprehensive extraction - look for any link containing blog path with content
+        # Method 4: BUGFIX - Comprehensive scan for all blog links
         print(f"[DEBUG] Running comprehensive scan for all blog links")
         all_blog_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/'))
         print(f"[DEBUG] Found {len(all_blog_links)} total links with blog path")
@@ -157,20 +163,42 @@ class AWSBlogCrawler:
                     path_after_blog = full_url.split('/blogs/desktop-and-application-streaming/')[-1].strip('/')
                     if path_after_blog and len(path_after_blog) > 0:
                         links.append(full_url)
-                        print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
+                        # BUGFIX: Log 2026+ posts explicitly
+                        if '/2026/' in full_url:
+                            print(f"[DEBUG] !!! 2026 POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
+                        else:
+                            print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
         
-        # BUGFIX: Special handling for 2026 posts - check specifically for the target post
-        target_post_pattern = re.compile(r'amazon.*workspaces.*graphics.*g6', re.IGNORECASE)
-        print(f"[DEBUG] Checking for target post: 'Amazon WorkSpaces launches Graphics G6'")
+        # Method 5: BUGFIX - Special handling for specific target post (WorkSpaces Graphics G6)
+        target_post_patterns = [
+            re.compile(r'amazon.*workspaces.*graphics.*g6', re.IGNORECASE),
+            re.compile(r'workspaces.*g6.*bundles', re.IGNORECASE),
+            re.compile(r'graphics.*g6.*gr6.*g6f', re.IGNORECASE),
+        ]
+        print(f"[DEBUG] Checking for target post patterns: 'Amazon WorkSpaces Graphics G6'")
         for link in soup.find_all('a', href=True):
             link_text = link.get_text(strip=True)
             href = link.get('href')
-            if target_post_pattern.search(link_text) or target_post_pattern.search(href):
-                full_url = urljoin(self.base_url, href)
-                if full_url not in links and '/blogs/desktop-and-application-streaming/' in full_url:
-                    links.append(full_url)
-                    print(f"[DEBUG] !!! FOUND TARGET POST !!! : {full_url}")
-                    print(f"[DEBUG] Link text: {link_text}")
+            title_attr = link.get('title', '')
+            
+            for pattern in target_post_patterns:
+                if pattern.search(link_text) or pattern.search(href) or pattern.search(title_attr):
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in links and '/blogs/desktop-and-application-streaming/' in full_url:
+                        links.append(full_url)
+                        print(f"[DEBUG] !!! FOUND TARGET POST (WorkSpaces G6) !!! : {full_url}")
+                        print(f"[DEBUG] Link text: {link_text}")
+                        print(f"[DEBUG] Link href: {href}")
+                        print(f"[DEBUG] Link title: {title_attr}")
+                        break
+        
+        # Method 6: BUGFIX - Look in RSS/Sitemap-like structures if present
+        print(f"[DEBUG] Checking for RSS/Sitemap links")
+        rss_links = soup.find_all('link', {'type': 'application/rss+xml'})
+        for rss_link in rss_links:
+            rss_href = rss_link.get('href')
+            if rss_href:
+                print(f"[DEBUG] Found RSS feed: {rss_href}")
         
         # Debug logging for all environments
         print(f"[DEBUG] ===== EXTRACTION SUMMARY =====")
@@ -186,6 +214,13 @@ class AWSBlogCrawler:
                 # Check if this is a 2026 post
                 if '/2026/' in link:
                     print(f"[DEBUG]      ^^ 2026 POST DETECTED ^^")
+        
+        # BUGFIX: Count and report 2026+ posts
+        future_posts = [link for link in links if '/2026/' in link]
+        if future_posts:
+            print(f"[DEBUG] !!! FOUND {len(future_posts)} POST(S) FROM 2026+ !!!")
+            for fp in future_posts:
+                print(f"[DEBUG]   - {fp}")
         
         return list(set(links))
     
@@ -241,6 +276,7 @@ class AWSBlogCrawler:
             '%Y-%m-%dT%H:%M:%SZ',           # ISO 8601 with Z
             '%Y-%m-%dT%H:%M:%S%z',          # ISO 8601 with timezone
             '%Y-%m-%dT%H:%M:%S.%fZ',        # ISO 8601 with milliseconds
+            '%Y-%m-%dT%H:%M:%S.%f%z',       # ISO 8601 with milliseconds and timezone
             '%Y-%m-%d',                      # Simple date
             '%B %d, %Y',                     # March 2, 2026
             '%b %d, %Y',                     # Mar 2, 2026
@@ -249,52 +285,4 @@ class AWSBlogCrawler:
             '%m/%d/%Y',                      # 03/02/2026
             '%Y/%m/%d',                      # 2026/03/02
             '%Y-%m-%d %H:%M:%S',            # 2026-03-02 10:30:00
-            '%a, %d %b %Y %H:%M:%S %z',     # Mon, 02 Mar 2026 10:30:00 +0000
-            '%a, %d %b %Y %H:%M:%S %Z',     # Mon, 02 Mar 2026 10:30:00 GMT
-        ]
-        
-        # Clean the date string
-        date_str = date_str.strip()
-        print(f"[DEBUG] parse_date_string: Attempting to parse '{date_str}'")
-        
-        # Try each format
-        for fmt in date_formats:
-            try:
-                parsed_date = datetime.strptime(date_str, fmt)
-                # Convert to ISO 8601 format with UTC timezone
-                iso_date = parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-                print(f"[DEBUG] parse_date_string: Successfully parsed '{date_str}' as '{iso_date}' using format '{fmt}'")
-                # BUGFIX: Check for future dates (2026+) and log them prominently
-                if parsed_date.year >= 2026:
-                    print(f"[DEBUG] !!! FUTURE DATE DETECTED (>= 2026) !!! : {iso_date}")
-                return iso_date
-            except ValueError:
-                continue
-        
-        print(f"[WARNING] parse_date_string: Could not parse date string: '{date_str}'")
-        return None
-
-    def extract_post_metadata(self, url, html):
-        """
-        Extract metadata from a blog post
-        BUGFIX: Enhanced date extraction with comprehensive logging for debugging
-        """
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        metadata = {
-            'url': url,
-            'title': '',
-            'authors': '',
-            'date_published': '',
-            'date_updated': '',
-            'tags': '',
-            'content': ''
-        }
-        
-        # Extract title
-        title_tag = soup.find('h1') or soup.find('title')
-        if title_tag:
-            metadata['title'] = title_tag.get_text(strip=True)
-            metadata['title'] = metadata['title'].split('|')[0].strip()
-        
-        print(f"[DEBUG] ========== Extracting metadata for:
+            '%a, %d %b %Y %H:%M:%S %z',     # Mon, 02 Mar 2026 10:30:00 +
