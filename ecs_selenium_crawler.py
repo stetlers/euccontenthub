@@ -237,8 +237,8 @@ def extract_aws_blog_metadata(driver, url):
             if not name or not content:
                 continue
             
-            # Publication date
-            if name in ['article:published_time', 'datePublished', 'date', 'publish-date']:
+            # Publication date - expanded to catch more date formats
+            if name in ['article:published_time', 'datePublished', 'date', 'publish-date', 'pubdate', 'publication-date']:
                 metadata['publication_date'] = content
                 print(f"  DEBUG: Found publication date: {content} (from {name})")
                 log_to_cloudwatch(f"Publication date found: {content} (from {name})", 'DEBUG')
@@ -291,6 +291,7 @@ def extract_aws_blog_metadata(driver, url):
             print(f"  WARNING: Could not extract structured data: {e}")
         
         # Try to find publication date in page content if not found in meta
+        # Enhanced selectors to capture more date formats
         if not metadata['publication_date']:
             date_selectors = [
                 "//time[@datetime]",
@@ -298,7 +299,14 @@ def extract_aws_blog_metadata(driver, url):
                 "//div[contains(@class, 'date')]",
                 "//span[contains(@class, 'published')]",
                 "//div[contains(@class, 'post-date')]",
-                "//div[contains(@class, 'blog-post-meta')]//time"
+                "//div[contains(@class, 'blog-post-meta')]//time",
+                "//div[contains(@class, 'meta-date')]",
+                "//span[contains(@class, 'entry-date')]",
+                "//div[contains(@class, 'entry-meta')]//time",
+                "//article//time",
+                # Staging-specific selectors
+                "//div[contains(@class, 'post-metadata')]//time",
+                "//div[contains(@class, 'article-metadata')]//span[contains(@class, 'date')]"
             ]
             
             for selector in date_selectors:
@@ -307,15 +315,15 @@ def extract_aws_blog_metadata(driver, url):
                     datetime_attr = date_elem.get_attribute('datetime')
                     if datetime_attr:
                         metadata['publication_date'] = datetime_attr
-                        print(f"  DEBUG: Found publication date in page: {datetime_attr}")
-                        log_to_cloudwatch(f"Publication date found in page: {datetime_attr}", 'DEBUG')
+                        print(f"  DEBUG: Found publication date in page: {datetime_attr} (selector: {selector})")
+                        log_to_cloudwatch(f"Publication date found in page: {datetime_attr} (selector: {selector})", 'DEBUG')
                         break
                     else:
                         date_text = date_elem.text.strip()
                         if date_text:
                             metadata['publication_date'] = date_text
-                            print(f"  DEBUG: Found publication date text: {date_text}")
-                            log_to_cloudwatch(f"Publication date text found: {date_text}", 'DEBUG')
+                            print(f"  DEBUG: Found publication date text: {date_text} (selector: {selector})")
+                            log_to_cloudwatch(f"Publication date text found: {date_text} (selector: {selector})", 'DEBUG')
                             break
                 except NoSuchElementException:
                     continue
@@ -355,26 +363,10 @@ def extract_aws_blog_metadata(driver, url):
 def check_date_filtering(publication_date_str):
     """
     Debug date filtering logic to ensure posts are not filtered incorrectly
+    Enhanced to handle future dates and provide detailed debugging
     
     Returns:
         dict: {'should_include': bool, 'parsed_date': datetime, 'reason': str}
     """
     print(f"  DEBUG: Checking date filtering for: {publication_date_str}")
-    log_to_cloudwatch(f"Checking date filtering for: {publication_date_str}", 'DEBUG')
-    
-    if not publication_date_str:
-        print(f"  DEBUG: No publication date provided")
-        log_to_cloudwatch("No publication date provided for filtering check", 'DEBUG')
-        return {
-            'should_include': True,
-            'parsed_date': None,
-            'reason': 'No publication date available, including by default'
-        }
-    
-    try:
-        # Parse the date
-        parsed_date = date_parser.parse(publication_date_str)
-        
-        # Make timezone-aware if not already
-        if parsed_date.tzinfo is None:
-            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+    log_to
