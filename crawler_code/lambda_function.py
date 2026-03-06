@@ -225,7 +225,9 @@ class AWSBlogCrawler:
             try:
                 parsed_date = datetime.strptime(date_str, fmt)
                 # Convert to ISO 8601 format with UTC timezone
-                return parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+                iso_date = parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+                print(f"[DEBUG] Successfully parsed date '{date_str}' as '{iso_date}'")
+                return iso_date
             except ValueError:
                 continue
         
@@ -251,6 +253,8 @@ class AWSBlogCrawler:
         if title_tag:
             metadata['title'] = title_tag.get_text(strip=True)
             metadata['title'] = metadata['title'].split('|')[0].strip()
+        
+        print(f"[DEBUG] Extracting metadata for: {metadata['title']}")
         
         # Extract authors - try multiple methods
         
@@ -291,6 +295,8 @@ class AWSBlogCrawler:
                         if name_match:
                             metadata['authors'] = name_match.group(1).strip()
         
+        print(f"[DEBUG] Extracted authors: {metadata['authors']}")
+        
         # BUGFIX: Enhanced date extraction with multiple fallback methods and improved parsing
         # Special handling for 2026 dates and staging environment
         date_extracted = False
@@ -299,6 +305,7 @@ class AWSBlogCrawler:
         date_tag = soup.find('time', {'datetime': True})
         if date_tag:
             raw_date = date_tag.get('datetime', '')
+            print(f"[DEBUG] Found time tag with datetime: {raw_date}")
             parsed_date = self.parse_date_string(raw_date)
             if parsed_date:
                 metadata['date_published'] = parsed_date
@@ -307,8 +314,3 @@ class AWSBlogCrawler:
         
         # Method 2: Check meta tags for publication date (enhanced with more meta tag types)
         if not date_extracted:
-            date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
-                        soup.find('meta', {'name': 'date'}) or
-                        soup.find('meta', {'name': 'publish_date'}) or
-                        soup.find('meta', {'property': 'og:article:published_time'}) or
-                        soup.find('meta', {'

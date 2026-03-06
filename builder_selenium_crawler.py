@@ -8,7 +8,7 @@ import json
 import os
 import time
 import boto3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -187,10 +187,10 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
             
             # Calculate cutoff date if date filter is enabled
             if date_filter_days:
-                cutoff_date = datetime.utcnow() - timedelta(days=date_filter_days)
+                cutoff_date = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(days=date_filter_days)
                 print(f"  Date filter enabled: including posts from {cutoff_date.strftime('%Y-%m-%d')} onwards")
             
-            # FIX: Track all posts and diagnostics for debugging
+            # DIAGNOSTIC: Track all posts and diagnostics for debugging
             all_posts_count = 0
             skipped_by_date = 0
             skipped_by_keywords = 0
@@ -199,10 +199,11 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 'builder_euc': 0,
                 'aws_blog_das_category': 0,
                 'aws_blog_euc_keywords': 0,
-                'aws_blog_euc_in_path': 0
+                'aws_blog_euc_in_path': 0,
+                'staging_euc': 0
             }
             
-            # FIX: Track the specific March 2, 2026 post for debugging
+            # DIAGNOSTIC: Track the specific March 2, 2026 post for debugging
             target_post_found = False
             target_post_details = None
             
@@ -215,10 +216,10 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 post_id = item.get('post_id', '')
                 text = f"{url} {title}".lower()
                 
-                # FIX: Track if this is the target post we're debugging
+                # DIAGNOSTIC: Track if this is the target post we're debugging
                 is_target_post = (
-                    'march 2' in published_date.lower() or 
-                    '2026-03-02' in published_date or
+                    ('2026-03-02' in published_date) or
+                    ('march' in published_date.lower() and '2' in published_date and '2026' in published_date) or
                     ('workspaces' in title.lower() and 'graphics' in title.lower() and 'g6' in title.lower())
                 )
                 
@@ -231,41 +232,48 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                         'published_date': published_date,
                         'source': source
                     }
-                    print(f"\n>>> FOUND TARGET POST: {title}")
+                    print(f"\n>>> DIAGNOSTIC: FOUND TARGET POST: {title}")
                     print(f"    Post ID: {post_id}")
                     print(f"    URL: {url}")
                     print(f"    Published: {published_date}")
                     print(f"    Source: {source}")
                 
-                # FIX: Enhanced date filtering with better error handling and diagnostics
+                # FIX: Enhanced date filtering with better error handling and timezone awareness
                 if cutoff_date and published_date:
                     try:
-                        # Parse published_date - handle both YYYY-MM-DD and ISO format
-                        if 'T' in published_date:
-                            # ISO format with timezone
-                            post_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
-                        else:
-                            # Simple date format
-                            post_date = datetime.strptime(published_date, '%Y-%m-%d')
+                        # Parse published_date - handle multiple formats
+                        post_date = None
                         
-                        # FIX: Make cutoff_date timezone-aware if post_date is timezone-aware
-                        if post_date.tzinfo is not None and cutoff_date.tzinfo is None:
-                            from datetime import timezone
+                        if 'T' in published_date:
+                            # ISO format with potential timezone
+                            try:
+                                post_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
+                            except ValueError:
+                                # Try without timezone info
+                                post_date = datetime.fromisoformat(published_date.split('+')[0].split('Z')[0])
+                                post_date = post_date.replace(tzinfo=timezone.utc)
+                        else:
+                            # Simple date format YYYY-MM-DD
+                            post_date = datetime.strptime(published_date, '%Y-%m-%d')
+                            post_date = post_date.replace(tzinfo=timezone.utc)
+                        
+                        # Ensure cutoff_date is timezone-aware
+                        if cutoff_date.tzinfo is None:
                             cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
                         
                         if post_date < cutoff_date:
                             if is_target_post:
-                                print(f"    >>> WARNING: Target post skipped by date filter!")
+                                print(f"    >>> DIAGNOSTIC: Target post skipped by date filter!")
                                 print(f"        Post date: {post_date}")
                                 print(f"        Cutoff date: {cutoff_date}")
                             skipped_by_date += 1
                             continue  # Skip posts older than cutoff
                         elif is_target_post:
-                            print(f"    >>> Target post PASSED date filter")
+                            print(f"    >>> DIAGNOSTIC: Target post PASSED date filter")
                             print(f"        Post date: {post_date}")
                             print(f"        Cutoff date: {cutoff_date}")
                     except (ValueError, TypeError) as e:
-                        # FIX: Track date parsing errors for diagnostics
+                        # Track date parsing errors for diagnostics
                         date_parse_errors.append({
                             'post_id': post_id,
                             'published_date': published_date,
@@ -273,24 +281,21 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                         })
                         print(f"  Warning: Could not parse date for {post_id}: {published_date} - {e}")
                         if is_target_post:
-                            print(f"    >>> WARNING: Target post had date parsing error!")
+                            print(f"    >>> DIAGNOSTIC: Target post had date parsing error - INCLUDING BY DEFAULT!")
                         # Include the post to be safe when date parsing fails
                 
-                # Check if from Builder.AWS or AWS Blogs
+                # FIX: Check source domains including staging environments
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
-                is_aws_blog = 'aws.amazon.com/blogs' in url
-                
-                # FIX: Check if this is staging environment
-                is_staging = 'staging' in url or 'staging' in source
+                is_aws_blog = 'aws.amazon.com/blogs' in url or 'awsblogscontent.com' in url
+                is_staging = 'staging' in url or 'staging' in source or 'staging.awseuccontent.com' in url or 'staging.awseuccontent.com' in source
                 
                 if is_target_post:
-                    print(f"    >>> Source checks:")
+                    print(f"    >>> DIAGNOSTIC: Source checks:")
                     print(f"        is_builder: {is_builder}")
                     print(f"        is_aws_blog: {is_aws_blog}")
                     print(f"        is_staging: {is_staging}")
                 
-                # FIX: Expanded and refined EUC-related keywords for better detection
-                # Added more variations including specific graphics bundle identifiers
+                # FIX: Comprehensive EUC-related keywords including all graphics bundle variations
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
@@ -299,29 +304,27 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'application streaming', 'graphics', 'bundle',
                     'workspaces graphics', 'graphics bundle', 'g6 bundle',
                     'g6.xlarge', 'g6.2xlarge', 'graphics workspaces',
-                    'g6 bundles', 'graphics.g6', 'gr6', 'g6f',  # FIX: Added gr6 and g6f for March 2 post
+                    'g6 bundles', 'graphics.g6', 'gr6', 'g6f',
+                    'graphics g6', 'gr6 bundle', 'g6f bundle',
                     'workspaces web', 'workspace web',
                     'amazon workspaces', 'aws workspaces',
-                    'launches graphics'  # FIX: Added to catch launch announcements
+                    'launches graphics', 'launch graphics',
+                    'workspaces launch', 'graphics launch'
                 ]
                 
-                # FIX: Enhanced detection logic with URL path checking
-                # Include if:
-                # 1. From Builder.AWS AND EUC-related
-                # 2. From AWS Blogs desktop-and-application-streaming category (always EUC)
-                # 3. From AWS Blogs AND contains EUC keywords
-                # 4. FIX: Check URL path components for better detection
+                # FIX: Enhanced detection logic
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
                 is_das_category = '/desktop-and-application-streaming/' in url
                 
                 if is_target_post:
-                    print(f"    >>> Keyword checks:")
+                    print(f"    >>> DIAGNOSTIC: Keyword checks:")
                     print(f"        is_euc_related: {is_euc_related}")
                     print(f"        is_das_category: {is_das_category}")
-                    print(f"        text sample: {text[:200]}")
+                    print(f"        text sample: {text[:300]}")
+                    print(f"        matched keywords: {[kw for kw in euc_keywords if kw in text]}")
                 
-                # FIX: Additional URL path checking for posts that might be missed
-                url_path_keywords = ['workspaces', 'appstream', 'euc', 'end-user']
+                # FIX: Additional URL path checking
+                url_path_keywords = ['workspaces', 'appstream', 'euc', 'end-user', 'desktop-and-application']
                 has_euc_in_path = any(keyword in url.lower() for keyword in url_path_keywords)
                 
                 if is_target_post:
@@ -347,19 +350,8 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     should_include = True
                     inclusion_reason = 'aws_blog_euc_in_path'
                     included_by_reason['aws_blog_euc_in_path'] += 1
-                
-                if is_target_post:
-                    print(f"    >>> Final decision:")
-                    print(f"        should_include: {should_include}")
-                    print(f"        inclusion_reason: {inclusion_reason}")
-                
-                if should_include:
-                    posts.append({
-                        'post_id': post_id,
-                        'url': url,
-                        'published_date': published_date,
-                        'title': title,
-                        'inclusion_reason': inclusion_reason
-                    })
-                    if is_target_post:
-                        print(f"    >>> Target post INCLUDED in results!\
+                elif is_staging and is_euc_related:
+                    # FIX: Explicitly handle staging environment EUC posts
+                    should_include = True
+                    inclusion_reason = 'staging_euc'
+                    included_
