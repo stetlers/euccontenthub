@@ -195,6 +195,16 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
             skipped_by_date = 0
             skipped_by_keywords = 0
             date_parse_errors = []
+            included_by_reason = {
+                'builder_euc': 0,
+                'aws_blog_das_category': 0,
+                'aws_blog_euc_keywords': 0,
+                'aws_blog_euc_in_path': 0
+            }
+            
+            # FIX: Track the specific March 2, 2026 post for debugging
+            target_post_found = False
+            target_post_details = None
             
             for item in response.get('Items', []):
                 all_posts_count += 1
@@ -205,18 +215,55 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 post_id = item.get('post_id', '')
                 text = f"{url} {title}".lower()
                 
+                # FIX: Track if this is the target post we're debugging
+                is_target_post = (
+                    'march 2' in published_date.lower() or 
+                    '2026-03-02' in published_date or
+                    ('workspaces' in title.lower() and 'graphics' in title.lower() and 'g6' in title.lower())
+                )
+                
+                if is_target_post:
+                    target_post_found = True
+                    target_post_details = {
+                        'post_id': post_id,
+                        'url': url,
+                        'title': title,
+                        'published_date': published_date,
+                        'source': source
+                    }
+                    print(f"\n>>> FOUND TARGET POST: {title}")
+                    print(f"    Post ID: {post_id}")
+                    print(f"    URL: {url}")
+                    print(f"    Published: {published_date}")
+                    print(f"    Source: {source}")
+                
                 # FIX: Enhanced date filtering with better error handling and diagnostics
                 if cutoff_date and published_date:
                     try:
                         # Parse published_date - handle both YYYY-MM-DD and ISO format
                         if 'T' in published_date:
+                            # ISO format with timezone
                             post_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
                         else:
+                            # Simple date format
                             post_date = datetime.strptime(published_date, '%Y-%m-%d')
                         
+                        # FIX: Make cutoff_date timezone-aware if post_date is timezone-aware
+                        if post_date.tzinfo is not None and cutoff_date.tzinfo is None:
+                            from datetime import timezone
+                            cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
+                        
                         if post_date < cutoff_date:
+                            if is_target_post:
+                                print(f"    >>> WARNING: Target post skipped by date filter!")
+                                print(f"        Post date: {post_date}")
+                                print(f"        Cutoff date: {cutoff_date}")
                             skipped_by_date += 1
                             continue  # Skip posts older than cutoff
+                        elif is_target_post:
+                            print(f"    >>> Target post PASSED date filter")
+                            print(f"        Post date: {post_date}")
+                            print(f"        Cutoff date: {cutoff_date}")
                     except (ValueError, TypeError) as e:
                         # FIX: Track date parsing errors for diagnostics
                         date_parse_errors.append({
@@ -225,14 +272,25 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                             'error': str(e)
                         })
                         print(f"  Warning: Could not parse date for {post_id}: {published_date} - {e}")
+                        if is_target_post:
+                            print(f"    >>> WARNING: Target post had date parsing error!")
                         # Include the post to be safe when date parsing fails
                 
                 # Check if from Builder.AWS or AWS Blogs
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url
                 
+                # FIX: Check if this is staging environment
+                is_staging = 'staging' in url or 'staging' in source
+                
+                if is_target_post:
+                    print(f"    >>> Source checks:")
+                    print(f"        is_builder: {is_builder}")
+                    print(f"        is_aws_blog: {is_aws_blog}")
+                    print(f"        is_staging: {is_staging}")
+                
                 # FIX: Expanded and refined EUC-related keywords for better detection
-                # Added more variations and corrected case-sensitivity issues
+                # Added more variations including specific graphics bundle identifiers
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
@@ -241,9 +299,10 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'application streaming', 'graphics', 'bundle',
                     'workspaces graphics', 'graphics bundle', 'g6 bundle',
                     'g6.xlarge', 'g6.2xlarge', 'graphics workspaces',
-                    'g6 bundles', 'graphics.g6',  # FIX: Added for March 2 post detection
-                    'workspaces web', 'workspace web',  # Additional coverage
-                    'amazon workspaces', 'aws workspaces'  # Full names
+                    'g6 bundles', 'graphics.g6', 'gr6', 'g6f',  # FIX: Added gr6 and g6f for March 2 post
+                    'workspaces web', 'workspace web',
+                    'amazon workspaces', 'aws workspaces',
+                    'launches graphics'  # FIX: Added to catch launch announcements
                 ]
                 
                 # FIX: Enhanced detection logic with URL path checking
@@ -255,114 +314,52 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
                 is_das_category = '/desktop-and-application-streaming/' in url
                 
+                if is_target_post:
+                    print(f"    >>> Keyword checks:")
+                    print(f"        is_euc_related: {is_euc_related}")
+                    print(f"        is_das_category: {is_das_category}")
+                    print(f"        text sample: {text[:200]}")
+                
                 # FIX: Additional URL path checking for posts that might be missed
                 url_path_keywords = ['workspaces', 'appstream', 'euc', 'end-user']
                 has_euc_in_path = any(keyword in url.lower() for keyword in url_path_keywords)
                 
+                if is_target_post:
+                    print(f"        has_euc_in_path: {has_euc_in_path}")
+                
                 # FIX: Relaxed filtering - include if ANY of these conditions are true
                 should_include = False
+                inclusion_reason = None
+                
                 if is_builder and is_euc_related:
                     should_include = True
+                    inclusion_reason = 'builder_euc'
+                    included_by_reason['builder_euc'] += 1
                 elif is_aws_blog and is_das_category:
                     should_include = True
+                    inclusion_reason = 'aws_blog_das_category'
+                    included_by_reason['aws_blog_das_category'] += 1
                 elif is_aws_blog and is_euc_related:
                     should_include = True
+                    inclusion_reason = 'aws_blog_euc_keywords'
+                    included_by_reason['aws_blog_euc_keywords'] += 1
                 elif is_aws_blog and has_euc_in_path:
-                    should_include = True  # FIX: Include AWS blog posts with EUC in URL path
+                    should_include = True
+                    inclusion_reason = 'aws_blog_euc_in_path'
+                    included_by_reason['aws_blog_euc_in_path'] += 1
+                
+                if is_target_post:
+                    print(f"    >>> Final decision:")
+                    print(f"        should_include: {should_include}")
+                    print(f"        inclusion_reason: {inclusion_reason}")
                 
                 if should_include:
                     posts.append({
                         'post_id': post_id,
                         'url': url,
                         'published_date': published_date,
-                        'title': title
+                        'title': title,
+                        'inclusion_reason': inclusion_reason
                     })
-                else:
-                    skipped_by_keywords += 1
-            
-            # FIX: Enhanced diagnostic logging
-            print(f"\n=== CRAWLING DIAGNOSTICS ===")
-            print(f"Total posts in DynamoDB: {all_posts_count}")
-            print(f"Posts skipped by date filter: {skipped_by_date}")
-            print(f"Posts skipped by keyword filter: {skipped_by_keywords}")
-            print(f"Posts selected for crawling: {len(posts)}")
-            
-            if date_parse_errors:
-                print(f"\nDate parsing errors ({len(date_parse_errors)}):")
-                for error in date_parse_errors[:5]:  # Show first 5
-                    print(f"  - {error['post_id']}: {error['published_date']} ({error['error']})")
-                if len(date_parse_errors) > 5:
-                    print(f"  ... and {len(date_parse_errors) - 5} more")
-            
-            # FIX: Group posts by date and show distribution
-            if posts:
-                print(f"\n=== POSTS BY DATE ===")
-                date_counts = {}
-                for post in posts:
-                    date = post.get('published_date', 'unknown')
-                    # Extract just the date part if ISO format
-                    if 'T' in date:
-                        date = date.split('T')[0]
-                    date_counts[date] = date_counts.get(date, 0) + 1
-                
-                # Show last 10 dates
-                for date in sorted(date_counts.keys(), reverse=True)[:10]:
-                    print(f"  {date}: {date_counts[date]} post(s)")
-                    # FIX: Show titles for recent posts (within last 7 days)
-                    try:
-                        post_date = datetime.strptime(date, '%Y-%m-%d')
-                        days_ago = (datetime.utcnow() - post_date).days
-                        if days_ago <= 7:
-                            for post in posts:
-                                post_published = post.get('published_date', '')
-                                if 'T' in post_published:
-                                    post_published = post_published.split('T')[0]
-                                if post_published == date:
-                                    print(f"    → {post['title'][:70]}...")
-                    except ValueError:
-                        pass
-                
-                if len(date_counts) > 10:
-                    print(f"  ... and {len(date_counts) - 10} more dates")
-            
-            print(f"=== END DIAGNOSTICS ===\n")
-            
-            return posts
-        except Exception as e:
-            print(f"  Error scanning DynamoDB: {e}")
-            import traceback
-            print(f"  Traceback: {traceback.format_exc()}")
-            return []
-
-
-def lambda_handler(event, context):
-    """
-    Lambda handler for Builder.AWS Selenium crawler
-    
-    Event parameters:
-    - post_ids (optional): List of post IDs to crawl (e.g., ['builder-post-1', 'builder-post-2'])
-    - table_name (optional): DynamoDB table name
-    - date_filter_days (optional): Only crawl posts from last N days (e.g., 90 for last 90 days)
-    
-    If post_ids provided: Crawl ONLY those specific posts
-    If post_ids not provided: Crawl ALL EUC posts from Builder.AWS and AWS Blogs
-    
-    Date filtering: Use date_filter_days to limit crawling to recent posts only.
-    This helps with:
-    - Reducing unnecessary crawling of old posts
-    - Ensuring new posts are detected and crawled
-    - Diagnosing date-related filtering issues
-    
-    Note: This crawler now handles BOTH Builder.AWS and AWS Blog posts to ensure
-    complete coverage of EUC content including desktop-and-application-streaming category.
-    
-    FIX: Enhanced diagnostic logging and date filtering to address issue with 
-    March 2, 2026 WorkSpaces Graphics G6 bundles post not appearing in results.
-    Improvements include:
-    - Better date parsing (handles both YYYY-MM-DD and ISO formats)
-    - Expanded keyword detection (added 'g6 bundles', 'graphics.g6')
-    - URL path checking for additional detection coverage
-    - Comprehensive diagnostic output showing filtering decisions
-    - Detailed date distribution with recent post titles
-    """
-    
+                    if is_target_post:
+                        print(f"    >>> Target post INCLUDED in results!\
