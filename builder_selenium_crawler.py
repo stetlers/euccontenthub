@@ -284,10 +284,22 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                             print(f"    >>> DIAGNOSTIC: Target post had date parsing error - INCLUDING BY DEFAULT!")
                         # Include the post to be safe when date parsing fails
                 
-                # FIX: Check source domains including staging environments
+                # FIX: Check source domains including staging environments and all AWS blog variations
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
-                is_aws_blog = 'aws.amazon.com/blogs' in url or 'awsblogscontent.com' in url
-                is_staging = 'staging' in url.lower() or 'staging' in source.lower() or 'staging.awseuccontent.com' in url.lower() or 'staging.awseuccontent.com' in source.lower()
+                is_aws_blog = (
+                    'aws.amazon.com/blogs' in url or 
+                    'awsblogscontent.com' in url or 
+                    'aws.amazon.com/blogs' in source or
+                    'awsblogscontent.com' in source
+                )
+                is_staging = (
+                    'staging' in url.lower() or 
+                    'staging' in source.lower() or 
+                    'staging.awseuccontent.com' in url.lower() or 
+                    'staging.awseuccontent.com' in source.lower() or
+                    'staging.' in url.lower() or
+                    'staging.' in source.lower()
+                )
                 
                 if is_target_post:
                     print(f"    >>> DIAGNOSTIC: Source checks:")
@@ -309,7 +321,9 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'workspaces web', 'workspace web',
                     'amazon workspaces', 'aws workspaces',
                     'launches graphics', 'launch graphics',
-                    'workspaces launch', 'graphics launch'
+                    'workspaces launch', 'graphics launch',
+                    'g6,', 'gr6,', 'g6f,',  # Handle comma-separated lists in titles
+                    ' g6 ', ' gr6 ', ' g6f '  # Space-delimited to avoid false matches
                 ]
                 
                 # FIX: Enhanced detection logic
@@ -320,8 +334,9 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     print(f"    >>> DIAGNOSTIC: Keyword checks:")
                     print(f"        is_euc_related: {is_euc_related}")
                     print(f"        is_das_category: {is_das_category}")
-                    print(f"        text sample: {text[:300]}")
-                    print(f"        matched keywords: {[kw for kw in euc_keywords if kw in text]}")
+                    print(f"        text sample: {text[:500]}")
+                    matched_keywords = [kw for kw in euc_keywords if kw in text]
+                    print(f"        matched keywords: {matched_keywords}")
                 
                 # FIX: Additional URL path checking
                 url_path_keywords = ['workspaces', 'appstream', 'euc', 'end-user', 'desktop-and-application']
@@ -344,13 +359,3 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     included_by_reason['aws_blog_das_category'] += 1
                 elif is_aws_blog and is_euc_related:
                     should_include = True
-                    inclusion_reason = 'aws_blog_euc_keywords'
-                    included_by_reason['aws_blog_euc_keywords'] += 1
-                elif is_aws_blog and has_euc_in_path:
-                    should_include = True
-                    inclusion_reason = 'aws_blog_euc_in_path'
-                    included_by_reason['aws_blog_euc_in_path'] += 1
-                elif is_staging and is_euc_related:
-                    # FIX: Explicitly handle staging environment EUC posts
-                    should_include = True
-                    inclusion_

@@ -7,6 +7,11 @@ import boto3
 from datetime import datetime, timedelta
 from decimal import Decimal
 import re
+import logging
+
+# Configure logging for crawler diagnostics
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
@@ -151,6 +156,7 @@ try:
 
 except Exception as e:
     print(f"✗ Error scanning all sources: {str(e)}")
+    logger.error(f"Failed to scan all sources: {str(e)}")
 
 # ============================================================================
 # ENHANCED: Analyze post date distribution to detect date filtering issues
@@ -308,12 +314,3 @@ for url in sample_urls:
 # ============================================================================
 print("\n" + "=" * 80)
 print("CHECKING FOR SIMILAR POST TITLES:")
-print("-" * 80)
-
-workspaces_related = [
-    p for p in posts 
-    if 'workspaces' in p.get('title', '').lower()
-]
-
-if workspaces_related:
-    print(f"\nFound {len(workspaces_related)} Work

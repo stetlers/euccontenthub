@@ -326,6 +326,7 @@ def analyze_rss_feed_parsing(events):
     rss_feeds = []
     feed_errors = []
     post_discovery = []
+    posts_by_date = {}
     
     for event in events:
         message = event["message"].strip()
@@ -335,4 +336,4 @@ def analyze_rss_feed_parsing(events):
             rss_feeds.append(message)
         
         # Look for feed parsing errors
-        if 'feed' in message.lower() and any(term in message.lower() for term in ['error', '
+        if 'feed' in message.lower() and any(term in message.lower
