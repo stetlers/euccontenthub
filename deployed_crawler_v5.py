@@ -74,16 +74,25 @@ class AWSBlogCrawler:
         
         FIX: Enhanced RSS parsing to capture all posts including recent ones.
         Added additional namespace handling and improved link extraction.
+        Removed any date filtering that may prevent recent posts from being captured.
         """
         rss_url = f"{self.base_url}feed/"
         print(f"Fetching RSS feed: {rss_url}")
         
         try:
-            response = self.session.get(rss_url, timeout=30)
+            # FIX: Disable caching to ensure fresh RSS content
+            response = self.session.get(rss_url, timeout=30, headers={
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            })
             response.raise_for_status()
             
             print(f"RSS feed response status: {response.status_code}")
             print(f"RSS feed content length: {len(response.text)}")
+            
+            # FIX: Debug - Save first 500 chars to understand feed structure
+            print(f"RSS feed preview: {response.text[:500]}")
             
             # Parse RSS/Atom feed
             root = ET.fromstring(response.text)
@@ -130,12 +139,13 @@ class AWSBlogCrawler:
             
             print(f"Found {len(links)} posts in RSS feed")
             
-            # FIX: Debug output for date analysis
+            # FIX: Debug output for date analysis - show ALL posts with dates
             if post_dates:
-                print(f"Post dates from RSS feed:")
-                for url, date in sorted(post_dates.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"Post dates from RSS feed (showing all):")
+                for url, date in sorted(post_dates.items(), key=lambda x: x[1], reverse=True):
                     print(f"  {date}: {url}")
             
+            # FIX: Ensure no duplicates but preserve ALL links (no date filtering)
             return list(set(links))
             
         except Exception as e:
@@ -150,15 +160,20 @@ class AWSBlogCrawler:
         
         FIX: Enhanced HTML parsing with multiple detection strategies
         to ensure new posts are captured even if RSS feed is delayed.
+        This method now acts as primary source for recent posts.
         """
         soup = BeautifulSoup(html, 'html.parser')
         links = []
         
+        print("Starting HTML link extraction with multiple strategies...")
+        
         # FIX: Strategy 1 - Find all article links with enhanced selectors
         articles = (
             soup.find_all('article') or 
-            soup.find_all('div', class_=re.compile(r'post|article|entry|blog-post', re.IGNORECASE))
+            soup.find_all('div', class_=re.compile(r'post|article|entry|blog-post|card', re.IGNORECASE))
         )
+        
+        print(f"  Strategy 1: Found {len(articles)} article-like elements")
         
         for article in articles:
             link_tag = article.find('a', href=True)
@@ -166,27 +181,43 @@ class AWSBlogCrawler:
                 href = link_tag['href']
                 full_url = urljoin(self.base_url, href)
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
-                    links.append(full_url)
-                    # FIX: Debug logging for new post detection
-                    date_elem = article.find('time')
-                    if date_elem:
-                        print(f"  Found post: {full_url} (date: {date_elem.get('datetime', date_elem.get_text())})")
+                    if full_url not in links:
+                        links.append(full_url)
+                        # FIX: Debug logging for new post detection
+                        date_elem = article.find('time')
+                        title_elem = article.find(['h1', 'h2', 'h3', 'h4'])
+                        title_text = title_elem.get_text(strip=True) if title_elem else 'N/A'
+                        if date_elem:
+                            print(f"    Found: {title_text[:50]}... ({date_elem.get('datetime', date_elem.get_text())})")
+                        else:
+                            print(f"    Found: {title_text[:50]}... (no date found)")
         
         # FIX: Strategy 2 - Find all links that match the blog pattern with stricter validation
-        if not links:
-            all_links = soup.find_all('a', href=True)
-            for link in all_links:
-                href = link['href']
-                if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
-                    full_url = urljoin(self.base_url, href)
-                    # FIX: Ensure it's a real post URL (has enough path segments)
-                    if full_url not in links and full_url.count('/') > 5:
-                        # Additional validation: must end with / or alphanumeric
-                        if full_url.endswith('/') or re.search(r'[a-zA-Z0-9]$', full_url):
+        print(f"  Strategy 2: Scanning all <a> tags for blog URLs...")
+        all_links = soup.find_all('a', href=True)
+        strategy_2_count = 0
+        for link in all_links:
+            href = link['href']
+            if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
+                full_url = urljoin(self.base_url, href)
+                # FIX: Ensure it's a real post URL (has enough path segments)
+                if full_url not in links and full_url.count('/') > 5:
+                    # Additional validation: must end with / or alphanumeric
+                    if full_url.endswith('/') or re.search(r'[a-zA-Z0-9]$', full_url):
+                        # FIX: Exclude pagination, category, and tag URLs
+                        if not re.search(r'/(page|category|tag|author)/\d+/?$', full_url):
                             links.append(full_url)
+                            strategy_2_count += 1
+                            # Debug: log link text to identify posts
+                            link_text = link.get_text(strip=True)[:50]
+                            print(f"    Found: {link_text}...")
+        
+        print(f"  Strategy 2: Added {strategy_2_count} additional links")
         
         # FIX: Strategy 3 - Look for h2/h3 titles that link to posts
-        title_links = soup.find_all(['h2', 'h3'], class_=re.compile(r'title|heading', re.IGNORECASE))
+        print(f"  Strategy 3: Scanning heading tags...")
+        title_links = soup.find_all(['h2', 'h3'], class_=re.compile(r'title|heading|entry-title', re.IGNORECASE))
+        strategy_3_count = 0
         for title in title_links:
             link_tag = title.find('a', href=True)
             if link_tag:
@@ -194,9 +225,44 @@ class AWSBlogCrawler:
                 full_url = urljoin(self.base_url, href)
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url not in links:
                     links.append(full_url)
+                    strategy_3_count += 1
+                    print(f"    Found: {link_tag.get_text(strip=True)[:50]}...")
         
-        print(f"Extracted {len(links)} post links from HTML")
-        return list(set(links))
+        print(f"  Strategy 3: Added {strategy_3_count} additional links")
+        
+        # FIX: Strategy 4 - Look for main content area and extract all links from there
+        print(f"  Strategy 4: Scanning main content area...")
+        main_content = (
+            soup.find('main') or 
+            soup.find('div', id=re.compile(r'main|content|primary', re.IGNORECASE)) or
+            soup.find('div', class_=re.compile(r'main|content|primary|posts', re.IGNORECASE))
+        )
+        
+        strategy_4_count = 0
+        if main_content:
+            content_links = main_content.find_all('a', href=True)
+            for link in content_links:
+                href = link['href']
+                if '/blogs/desktop-and-application-streaming/' in href:
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in links and full_url != self.base_url:
+                        if full_url.count('/') > 5 and not re.search(r'/(page|category|tag|author)/\d+/?$', full_url):
+                            links.append(full_url)
+                            strategy_4_count += 1
+        
+        print(f"  Strategy 4: Added {strategy_4_count} additional links")
+        
+        print(f"Total extracted: {len(links)} post links from HTML")
+        
+        # FIX: Return unique links while preserving order (newest first)
+        seen = set()
+        unique_links = []
+        for link in links:
+            if link not in seen:
+                seen.add(link)
+                unique_links.append(link)
+        
+        return unique_links
     
     def find_next_page(self, html):
         """Find the next page link for pagination"""
@@ -275,67 +341,3 @@ class AWSBlogCrawler:
                     next_elem = parent.find_next_sibling()
                     if not next_elem:
                         next_elem = parent.find_next(['p', 'table'])
-                    
-                    if next_elem:
-                        text = next_elem.get_text()
-                        # Pattern: "Name is a Title..." or "Name has been..."
-                        name_match = re.search(r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+(?:is|has|works|serves)', text)
-                        if name_match:
-                            metadata['authors'] = name_match.group(1).strip()
-        
-        # FIX: Enhanced published date extraction with multiple strategies
-        # Strategy 1: Look for time tag with datetime attribute
-        date_tag = soup.find('time', {'datetime': True})
-        if date_tag:
-            metadata['date_published'] = date_tag.get('datetime', '')
-            print(f"  Found date via <time> tag: {metadata['date_published']}")
-        
-        # FIX: Strategy 2: Check multiple meta tag variations
-        if not metadata['date_published']:
-            date_meta = (
-                soup.find('meta', {'property': 'article:published_time'}) or
-                soup.find('meta', {'name': 'date'}) or
-                soup.find('meta', {'name': 'publish_date'}) or
-                soup.find('meta', {'name': 'publication_date'}) or
-                soup.find('meta', {'property': 'og:published_time'})
-            )
-            if date_meta:
-                metadata['date_published'] = date_meta.get('content', '')
-                print(f"  Found date via meta tag: {metadata['date_published']}")
-        
-        # FIX: Strategy 3: Parse text for "on [Date]" pattern (common in AWS blogs)
-        if not metadata['date_published']:
-            # Match patterns like "on March 2, 2026" or "on 2 Mar 2026"
-            date_pattern = re.search(
-                r'\bon\s+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4})',
-                page_text
-            )
-            if date_pattern:
-                date_str = date_pattern.group(1)
-                # Try to parse and convert to ISO format
-                try:
-                    from dateutil import parser
-                    parsed_date = parser.parse(date_str)
-                    metadata['date_published'] = parsed_date.isoformat()
-                    print(f"  Found date via text parsing: {date_str} -> {metadata['date_published']}")
-                except:
-                    # Keep the original string if parsing fails
-                    metadata['date_published'] = date_str
-                    print(f"  Found date via text parsing (unparsed): {date_str}")
-        
-        # FIX: Strategy 4: Look in structured data (JSON-LD)
-        if not metadata['date_published']:
-            json_ld_scripts = soup.find_all('script', type='application/ld+json')
-            for script in json_ld_scripts:
-                try:
-                    data = json.loads(script.string)
-                    if isinstance(data, dict):
-                        if 'datePublished' in data:
-                            metadata['date_published'] = data['datePublished']
-                            print(f"  Found date via JSON-LD: {metadata['date_published']}")
-                            break
-                        elif '@graph' in data:
-                            for item in data['@graph']:
-                                if 'datePublished' in item:
-                                    metadata['date_published'] = item['datePublished']
-                                    print(f"  Found date via JSON-LD @graph: {metadata['date_published']}")

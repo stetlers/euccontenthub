@@ -257,7 +257,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                             post_date = datetime.strptime(published_date, '%Y-%m-%d')
                             post_date = post_date.replace(tzinfo=timezone.utc)
                         
-                        # Ensure cutoff_date is timezone-aware
+                        # Ensure cutoff_date is timezone-aware for comparison
                         if cutoff_date.tzinfo is None:
                             cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
                         
@@ -287,7 +287,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 # FIX: Check source domains including staging environments
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = 'aws.amazon.com/blogs' in url or 'awsblogscontent.com' in url
-                is_staging = 'staging' in url or 'staging' in source or 'staging.awseuccontent.com' in url or 'staging.awseuccontent.com' in source
+                is_staging = 'staging' in url.lower() or 'staging' in source.lower() or 'staging.awseuccontent.com' in url.lower() or 'staging.awseuccontent.com' in source.lower()
                 
                 if is_target_post:
                     print(f"    >>> DIAGNOSTIC: Source checks:")
@@ -353,5 +353,4 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 elif is_staging and is_euc_related:
                     # FIX: Explicitly handle staging environment EUC posts
                     should_include = True
-                    inclusion_reason = 'staging_euc'
-                    included_
+                    inclusion_
