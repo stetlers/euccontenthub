@@ -138,46 +138,71 @@ def check_crawler_configuration():
     print("=" * 80)
     
     try:
-        response = lambda_client.get_function_configuration(
-            FunctionName='aws-blog-crawler'
-        )
+        # Try both staging and production function names
+        function_names = [
+            'aws-blog-crawler-staging',
+            'aws-blog-crawler',
+            'blog-crawler-staging',
+            'euc-blog-crawler-staging'
+        ]
         
-        print(f"Runtime: {response.get('Runtime', 'N/A')}")
-        print(f"Timeout: {response.get('Timeout', 'N/A')} seconds")
-        print(f"Memory: {response.get('MemorySize', 'N/A')} MB")
-        print(f"Last Modified: {response.get('LastModified', 'N/A')}")
+        function_found = False
+        for func_name in function_names:
+            try:
+                response = lambda_client.get_function_configuration(
+                    FunctionName=func_name
+                )
+                function_found = True
+                print(f"✓ Found crawler function: {func_name}")
+                print(f"Runtime: {response.get('Runtime', 'N/A')}")
+                print(f"Timeout: {response.get('Timeout', 'N/A')} seconds")
+                print(f"Memory: {response.get('MemorySize', 'N/A')} MB")
+                print(f"Last Modified: {response.get('LastModified', 'N/A')}")
+                
+                # Check environment variables for date filters
+                env_vars = response.get('Environment', {}).get('Variables', {})
+                if env_vars:
+                    print("\nEnvironment Variables:")
+                    date_filter_issues = []
+                    for key, value in env_vars.items():
+                        if any(term in key.lower() for term in ['date', 'filter', 'url', 'category', 'stage', 'env']):
+                            print(f"  {key}: {value}")
+                            # Flag potential date range issues
+                            if 'date' in key.lower() and value:
+                                try:
+                                    env_date = datetime.strptime(value[:10], '%Y-%m-%d')
+                                    target_date_obj = datetime.strptime(TARGET_DATE, '%Y-%m-%d')
+                                    if 'after' in key.lower() and env_date > target_date_obj:
+                                        issue = f"    ⚠ WARNING: {key} ({value}) is AFTER target date {TARGET_DATE}"
+                                        print(issue)
+                                        date_filter_issues.append(issue)
+                                    if 'before' in key.lower() and env_date < target_date_obj:
+                                        issue = f"    ⚠ WARNING: {key} ({value}) is BEFORE target date {TARGET_DATE}"
+                                        print(issue)
+                                        date_filter_issues.append(issue)
+                                except (ValueError, TypeError):
+                                    pass
+                    
+                    if date_filter_issues:
+                        print(f"\n⚠ CRITICAL: Found {len(date_filter_issues)} date filter configuration issues!")
+                        print("This may prevent posts from the target date from being crawled.")
+                else:
+                    print("\nNo environment variables found")
+                
+                break  # Function found and processed
+                
+            except lambda_client.exceptions.ResourceNotFoundException:
+                continue
+            except Exception as e:
+                print(f"  Error checking function {func_name}: {e}")
+                continue
         
-        # Check environment variables for date filters
-        env_vars = response.get('Environment', {}).get('Variables', {})
-        if env_vars:
-            print("\nEnvironment Variables:")
-            date_filter_issues = []
-            for key, value in env_vars.items():
-                if any(term in key.lower() for term in ['date', 'filter', 'url', 'category', 'stage', 'env']):
-                    print(f"  {key}: {value}")
-                    # Flag potential date range issues
-                    if 'date' in key.lower() and value:
-                        try:
-                            env_date = datetime.strptime(value[:10], '%Y-%m-%d')
-                            target_date_obj = datetime.strptime(TARGET_DATE, '%Y-%m-%d')
-                            if 'after' in key.lower() and env_date > target_date_obj:
-                                issue = f"    ⚠ WARNING: {key} ({value}) is AFTER target date {TARGET_DATE}"
-                                print(issue)
-                                date_filter_issues.append(issue)
-                            if 'before' in key.lower() and env_date < target_date_obj:
-                                issue = f"    ⚠ WARNING: {key} ({value}) is BEFORE target date {TARGET_DATE}"
-                                print(issue)
-                                date_filter_issues.append(issue)
-                        except (ValueError, TypeError):
-                            pass
-            
-            if date_filter_issues:
-                print(f"\n⚠ CRITICAL: Found {len(date_filter_issues)} date filter configuration issues!")
-                print("This may prevent posts from the target date from being crawled.")
-        else:
-            print("\nNo environment variables found")
+        if not function_found:
+            print("⚠ No crawler Lambda function found. Tried:")
+            for name in function_names:
+                print(f"  - {name}")
         
-        return True
+        return function_found
     except Exception as e:
         print(f"Could not retrieve crawler configuration: {e}")
         return False
@@ -315,25 +340,4 @@ def check_for_target_post(events):
             target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] Date: {message}")
         
         # Check for any part of the URL fragments
-        if any(term in message.lower() for term in ['g6-gr6-and-g6f', 'gr6', 'g6f-bundles']):
-            target_indicators['url_match'] = True
-            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] URL Fragment: {message}")
-    
-    return target_indicators
-
-def analyze_rss_feed_parsing(events):
-    """Analyze RSS feed parsing and post discovery"""
-    rss_feeds = []
-    feed_errors = []
-    post_discovery = []
-    posts_by_date = {}
-    
-    for event in events:
-        message = event["message"].strip()
-        
-        # Look for RSS feed processing
-        if any(term in message.lower() for term in ['rss', 'feed', 'xml']):
-            rss_feeds.append(message)
-        
-        # Look for feed parsing errors
-        if 'feed' in message.lower() and any(term in message.lower
+        if any(term in message.lower() for term in ['g6-gr

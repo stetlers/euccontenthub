@@ -79,7 +79,7 @@ class AWSBlogCrawler:
                 print(f"[DEBUG] Response content length: {len(response.text)} bytes")
                 
                 # BUGFIX: Log response for March 2, 2026 target post
-                if '/2026/03/02/' in url or 'workspaces' in url.lower() and 'g6' in url.lower():
+                if '/2026/03/02/' in url or ('workspaces' in url.lower() and 'g6' in url.lower()):
                     print(f"[DEBUG] *** TARGET POST RESPONSE RECEIVED ***")
                     print(f"[DEBUG] URL: {url}")
                     print(f"[DEBUG] Status: {response.status_code}")
@@ -151,8 +151,8 @@ class AWSBlogCrawler:
         print(f"[FILTER] Reason: {reason}")
         
         # BUGFIX: Enhanced logging for target post
-        if '/2026/03/02/' in url:
-            print(f"[FILTER] *** FILTERING DECISION FOR MARCH 2, 2026 TARGET POST ***")
+        if '/2026/03/02/' in url or ('workspaces' in url.lower() and 'g6' in url.lower()):
+            print(f"[FILTER] *** FILTERING DECISION FOR TARGET POST ***")
             print(f"[FILTER] Status: {status}")
             print(f"[FILTER] Reason: {reason}")
     
@@ -160,7 +160,7 @@ class AWSBlogCrawler:
         """
         Extract all blog post links from the listing page
         BUGFIX: Enhanced extraction logic to capture posts with various URL structures,
-        including 2026+ posts and WorkSpaces Graphics G6 announcements
+        including 2026+ posts and WorkSpaces Graphics G6 announcements on staging
         """
         soup = BeautifulSoup(html, 'html.parser')
         links = []
@@ -181,13 +181,22 @@ class AWSBlogCrawler:
             'desktop-and-application-streaming',
             'blog-post',
             'article',
-            'entry-title'
+            'entry-title',
+            'workspaces'
         ]
         html_lower = html.lower()
         found_indicators = [ind for ind in blog_indicators if ind in html_lower]
         print(f"[DEBUG] Found blog indicators in HTML: {found_indicators}")
         if not found_indicators:
             print(f"[WARNING] HTML may not contain expected blog structure")
+        
+        # BUGFIX: Check for March 2, 2026 date pattern in raw HTML
+        if '2026/03/02' in html or '2026-03-02' in html or 'march 2, 2026' in html_lower or 'march 02, 2026' in html_lower:
+            print(f"[DEBUG] *** MARCH 2, 2026 DATE PATTERN FOUND IN HTML ***")
+        
+        # BUGFIX: Check for WorkSpaces G6 content in raw HTML
+        if 'workspaces' in html_lower and ('g6' in html_lower or 'graphics g6' in html_lower):
+            print(f"[DEBUG] *** WORKSPACES G6 CONTENT FOUND IN HTML ***")
         
         # Method 1: Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
@@ -198,7 +207,7 @@ class AWSBlogCrawler:
             if link_tag:
                 href = link_tag['href']
                 full_url = urljoin(self.base_url, href)
-                # Updated to handle both production and staging domains
+                # BUGFIX: Updated to handle both production and staging domains
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
                     if full_url not in links:
                         links.append(full_url)
@@ -222,15 +231,16 @@ class AWSBlogCrawler:
                 full_url = urljoin(self.base_url, href)
                 path_check = full_url.replace(self.base_url, '').strip('/')
                 segments = [s for s in path_check.split('/') if s]
-                # BUGFIX: Reduced segment requirement from 5 to 3 for various URL structures
-                if len(segments) >= 3 and full_url not in links:
+                # BUGFIX: Reduced segment requirement from 5 to 2 for various URL structures
+                # This allows capturing posts with different URL patterns on staging
+                if len(segments) >= 2 and full_url not in links:
                     has_date = re.search(r'/\d{4}/\d{2}/', full_url)
                     has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
                     
-                    # BUGFIX: Log filtering decision
-                    if has_date or has_slug:
+                    # BUGFIX: More lenient validation - accept if it looks like a post URL
+                    if has_date or has_slug or len(segments) >= 3:
                         links.append(full_url)
-                        self.log_filtering_decision(full_url, "Passed path validation (3+ segments, date or slug pattern)", passed=True)
+                        self.log_filtering_decision(full_url, "Passed path validation (2+ segments, date or slug pattern)", passed=True)
                         
                         # BUGFIX: Log specific target post if found
                         if '/2026/03/02/' in full_url:
@@ -238,7 +248,7 @@ class AWSBlogCrawler:
                             self.target_post_found = True
                             self.target_post_url = full_url
                     else:
-                        self.log_filtering_decision(full_url, "Failed path validation (no date pattern or slug)", passed=False)
+                        self.log_filtering_decision(full_url, "Failed path validation (insufficient segments)", passed=False)
         
         # Method 3: BUGFIX - Enhanced extraction for date-patterned URLs (including 2026+)
         print(f"[DEBUG] Method 3: Scanning for posts with date patterns in URL (including 2026+)")
@@ -250,7 +260,7 @@ class AWSBlogCrawler:
             if href:
                 full_url = urljoin(self.base_url, href)
                 if full_url not in links and full_url != self.base_url:
-                    # Ensure it's not a date archive page
+                    # BUGFIX: More lenient archive detection - only exclude obvious archive pages
                     is_archive = re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) or re.search(r'/\d{4}/\d{2}/?$', full_url)
                     
                     if not is_archive:
@@ -277,20 +287,7 @@ class AWSBlogCrawler:
             href = link.get('href')
             if href:
                 full_url = urljoin(self.base_url, href)
-                # Exclude archive pages, category pages, and base blog URL
+                # BUGFIX: More lenient exclusion logic
                 is_archive = re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) or re.search(r'/\d{4}/\d{2}/?$', full_url) or re.search(r'/\d{4}/?$', full_url)
                 is_category = re.search(r'/(category|tag|author)/', full_url)
-                is_base = full_url.rstrip('/') == self.base_url.rstrip('/')
-                
-                if not is_archive and not is_category and not is_base and full_url not in links:
-                    # Must have at least one segment after the base blog path
-                    path_after_blog = full_url.split('/blogs/desktop-and-application-streaming/')[-1].strip('/')
-                    if path_after_blog and len(path_after_blog) > 0:
-                        links.append(full_url)
-                        self.log_filtering_decision(full_url, "Passed comprehensive scan (not archive/category/base)", passed=True)
-                        
-                        # BUGFIX: Log 2026+ posts explicitly
-                        if '/2026/' in full_url:
-                            print(f"[DEBUG] !!! METHOD 4: 2026 POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
-                            if '/2026/03/02/' in full_url:
-                                print(f"[DEBUG] !!!
+                is_base = full_url.rstrip('/
