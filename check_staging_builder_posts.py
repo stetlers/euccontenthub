@@ -156,6 +156,7 @@ except Exception as e:
 # DIAGNOSTIC STEP 2: URL Filtering Analysis
 print("\nSTEP 2: URL FILTERING ANALYSIS")
 print("-" * 80)
+das_posts = []  # Initialize das_posts for later use
 try:
     # Check for URL variations and similar posts
     url_components = {
@@ -297,4 +298,4 @@ try:
             # Check March 2026 specifically
             target_month = target_date[:7]
             if target_month in date_counts:
-                avg_count = sum(date_counts.values()) / len(date_counts
+                avg_count
