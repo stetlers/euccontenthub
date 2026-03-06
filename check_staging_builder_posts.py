@@ -5,6 +5,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 import feedparser
+import json
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
@@ -12,6 +13,7 @@ table = dynamodb.Table('aws-blog-posts-staging')
 # Check for the specific Amazon WorkSpaces blog post from March 2, 2026
 print("Checking for Amazon WorkSpaces Graphics blog post...\n")
 target_url = 'https://aws.amazon.com/blogs/desktop-and-application-streaming/amazon-workspaces-launches-graphics-g6-gr6-and-g6f-bundles/'
+target_date = '2026-03-02'
 
 try:
     # Try to get the specific post by URL
@@ -28,7 +30,7 @@ try:
     else:
         print("✗ POST NOT FOUND in staging database!")
         print(f"  Target URL: {target_url}")
-        print(f"  Expected date: March 2, 2026")
+        print(f"  Expected date: {target_date}")
         print()
         
         # ENHANCED: Attempt to fetch the post directly from the web to verify it exists
@@ -62,10 +64,10 @@ try:
                             else:
                                 parsed_date = datetime.strptime(str(date_content)[:10], '%Y-%m-%d')
                             
-                            if parsed_date.strftime('%Y-%m-%d') == '2026-03-02':
-                                print("  ✓ Date matches expected: 2026-03-02")
+                            if parsed_date.strftime('%Y-%m-%d') == target_date:
+                                print(f"  ✓ Date matches expected: {target_date}")
                             else:
-                                print(f"  ⚠ Date mismatch: Expected 2026-03-02, found {parsed_date.strftime('%Y-%m-%d')}")
+                                print(f"  ⚠ Date mismatch: Expected {target_date}, found {parsed_date.strftime('%Y-%m-%d')}")
                         except Exception as e:
                             print(f"  ⚠ Could not parse date: {e}")
                     else:
@@ -129,9 +131,13 @@ try:
             print(f"Date range: {min(dates)} to {max(dates)}")
             
             # Check if recent dates are missing
-            target_date = '2026-03-02'
             posts_on_target = [p for p in das_posts if p.get('date', '').startswith(target_date)]
             print(f"Posts on {target_date}: {len(posts_on_target)}")
+            
+            if posts_on_target:
+                print("  Posts found on target date:")
+                for post in posts_on_target:
+                    print(f"    - {post.get('title', 'N/A')[:60]}...")
             
             # Check for posts in the last 30 days from target date
             recent_posts = [p for p in das_posts if p.get('date', '') >= '2026-02-01']
@@ -176,6 +182,8 @@ try:
                 avg_count = sum(date_counts.values()) / len(date_counts)
                 if date_counts['2026-03'] < avg_count * 0.5:
                     print(f"  ⚠ March 2026 has unusually low post count compared to average ({avg_count:.1f})")
+            else:
+                print(f"  ⚠ No posts found for March 2026 (2026-03)")
         else:
             print("No valid dates found in posts")
     else:
@@ -223,7 +231,7 @@ try:
                     elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
                         parsed_date = datetime(*entry.updated_parsed[:6])
                     
-                    if parsed_date and parsed_date.strftime('%Y-%m-%d') == '2026-03-02':
+                    if parsed_date and parsed_date.strftime('%Y-%m-%d') == target_date:
                         march_2_posts.append({
                             'title': entry.get('title', 'N/A'),
                             'url': entry.get('link', 'N/A'),
@@ -237,11 +245,14 @@ try:
             print(f"  This may indicate the post is not yet published or is older than recent entries\n")
         
         if march_2_posts:
-            print(f"Posts from March 2, 2026 in RSS feed: {len(march_2_posts)}")
+            print(f"Posts from {target_date} in RSS feed: {len(march_2_posts)}")
             for post in march_2_posts:
                 print(f"  - {post['title'][:60]}...")
                 print(f"    {post['url']}")
             print()
+        else:
+            print(f"✗ No posts from {target_date} found in RSS feed")
+            print(f"  This indicates the post may not be in the feed or crawler date parsing issues\n")
         
         # Show most recent entries from feed
         print("Most recent RSS feed entries (first 5):")
@@ -303,19 +314,4 @@ try:
             if recent_ws:
                 print(f"    Recent WorkSpaces posts in 2026: {len(recent_ws)}")
                 for post in sorted(recent_ws, key=lambda x: x.get('date', ''), reverse=True)[:3]:
-                    print(f"      - {post.get('date')}: {post.get('title', 'N/A')[:50]}...")
-    
-    print()
-    
-except Exception as e:
-    print(f"Error in URL pattern analysis: {str(e)}\n")
-
-# Check crawler timestamp and last run information
-print("\nCRAWLER EXECUTION ANALYSIS:")
-print("=" * 80)
-try:
-    # Get all posts and check their last_crawled timestamps
-    response = table.scan()
-    all_posts = response['Items']
-    
-    while 'LastEvaluatedKey' in response:
+                    print(f"      - {post.get('date')}: {post.get('title', '

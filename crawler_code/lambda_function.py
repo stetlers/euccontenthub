@@ -107,16 +107,18 @@ class AWSBlogCrawler:
                     # Check that it's not a category/tag page and has actual content path
                     path_check = full_url.replace(self.base_url, '').strip('/')
                     segments = [s for s in path_check.split('/') if s]
-                    # Valid blog posts typically have at least 5 segments: blogs/desktop-and-application-streaming/year/month/post-slug
-                    # BUGFIX: Reduced from 5 to 4 segments to capture posts that may have different URL structures
+                    # BUGFIX: Reduced from 5 to 3 segments to capture posts with various URL structures
                     # This ensures posts like /blogs/desktop-and-application-streaming/2026/03/new-post/ are detected
-                    if len(segments) >= 4 and full_url not in links:
-                        # Additional validation: check if it contains a date pattern (YYYY/MM or YYYY/MM/DD)
-                        if re.search(r'/\d{4}/\d{2}/', full_url):
+                    # Minimum structure: blogs/desktop-and-application-streaming/slug or blogs/desktop-and-application-streaming/year/...
+                    if len(segments) >= 3 and full_url not in links:
+                        # Additional validation: check if it contains a date pattern (YYYY/MM or YYYY/MM/DD) OR valid slug
+                        has_date = re.search(r'/\d{4}/\d{2}/', full_url)
+                        has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
+                        if has_date or has_slug:
                             links.append(full_url)
         
-        # BUGFIX: Additional extraction method - look for links with date patterns in href
-        # This catches posts that may be formatted differently in the HTML
+        # BUGFIX: Enhanced extraction method - look for links with date patterns in href
+        # This catches posts that may be formatted differently in the HTML, including 2026 dates
         all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
         for link in all_date_links:
             href = link.get('href')
@@ -127,6 +129,25 @@ class AWSBlogCrawler:
                     if not re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) and not re.search(r'/\d{4}/\d{2}/?$', full_url):
                         links.append(full_url)
                         print(f"[DEBUG] Added post via date pattern: {full_url}")
+        
+        # BUGFIX: Additional comprehensive extraction - look for any link containing blog path with content
+        # This is a catch-all to ensure we don't miss posts with non-standard formatting
+        all_blog_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/'))
+        for link in all_blog_links:
+            href = link.get('href')
+            if href:
+                full_url = urljoin(self.base_url, href)
+                # Exclude archive pages, category pages, and base blog URL
+                is_archive = re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) or re.search(r'/\d{4}/\d{2}/?$', full_url) or re.search(r'/\d{4}/?$', full_url)
+                is_category = re.search(r'/(category|tag|author)/', full_url)
+                is_base = full_url.rstrip('/') == self.base_url.rstrip('/')
+                
+                if not is_archive and not is_category and not is_base and full_url not in links:
+                    # Must have at least one segment after the base blog path
+                    path_after_blog = full_url.split('/blogs/desktop-and-application-streaming/')[-1].strip('/')
+                    if path_after_blog and len(path_after_blog) > 0:
+                        links.append(full_url)
+                        print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
         
         # Debug logging for staging environment
         if os.environ.get('ENVIRONMENT') == 'staging':
@@ -185,6 +206,7 @@ class AWSBlogCrawler:
         date_formats = [
             '%Y-%m-%dT%H:%M:%SZ',           # ISO 8601 with Z
             '%Y-%m-%dT%H:%M:%S%z',          # ISO 8601 with timezone
+            '%Y-%m-%dT%H:%M:%S.%fZ',        # ISO 8601 with milliseconds
             '%Y-%m-%d',                      # Simple date
             '%B %d, %Y',                     # March 2, 2026
             '%b %d, %Y',                     # Mar 2, 2026
@@ -192,6 +214,7 @@ class AWSBlogCrawler:
             '%d %b %Y',                      # 2 Mar 2026
             '%m/%d/%Y',                      # 03/02/2026
             '%Y/%m/%d',                      # 2026/03/02
+            '%Y-%m-%d %H:%M:%S',            # 2026-03-02 10:30:00
         ]
         
         # Clean the date string
@@ -269,6 +292,7 @@ class AWSBlogCrawler:
                             metadata['authors'] = name_match.group(1).strip()
         
         # BUGFIX: Enhanced date extraction with multiple fallback methods and improved parsing
+        # Special handling for 2026 dates and staging environment
         date_extracted = False
         
         # Method 1: Look for time tag with datetime attribute
@@ -281,44 +305,10 @@ class AWSBlogCrawler:
                 date_extracted = True
                 print(f"[DEBUG] Date from time tag: {metadata['date_published']}")
         
-        # Method 2: Check meta tags for publication date
+        # Method 2: Check meta tags for publication date (enhanced with more meta tag types)
         if not date_extracted:
             date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
                         soup.find('meta', {'name': 'date'}) or
                         soup.find('meta', {'name': 'publish_date'}) or
                         soup.find('meta', {'property': 'og:article:published_time'}) or
-                        soup.find('meta', {'name': 'publication_date'}))
-            if date_meta:
-                raw_date = date_meta.get('content', '')
-                parsed_date = self.parse_date_string(raw_date)
-                if parsed_date:
-                    metadata['date_published'] = parsed_date
-                    date_extracted = True
-                    print(f"[DEBUG] Date from meta tag: {metadata['date_published']}")
-        
-        # Method 3: Parse date from URL pattern (e.g., /2026/03/02/post-title/ or /2026/03/post-title/)
-        if not date_extracted:
-            # Try full date pattern first (YYYY/MM/DD)
-            url_date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
-            if url_date_match:
-                year, month, day = url_date_match.groups()
-                # Convert to ISO format
-                metadata['date_published'] = f"{year}-{month}-{day}T00:00:00Z"
-                date_extracted = True
-                print(f"[DEBUG] Extracted date from URL pattern (YYYY/MM/DD): {metadata['date_published']}")
-            else:
-                # Try year/month pattern (YYYY/MM)
-                url_date_match = re.search(r'/(\d{4})/(\d{2})/', url)
-                if url_date_match:
-                    year, month = url_date_match.groups()
-                    # Use first day of month as default
-                    metadata['date_published'] = f"{year}-{month}-01T00:00:00Z"
-                    date_extracted = True
-                    print(f"[DEBUG] Extracted date from URL pattern (YYYY/MM): {metadata['date_published']}")
-        
-        # Method 4: Look for date pattern in page text with enhanced patterns
-        if not date_extracted:
-            # Enhanced date patterns to catch more variations
-            date_patterns = [
-                # "Posted on March 2, 2026" or "Published: March 2, 2026"
-                r'(?:Posted on|Published|Date:|
+                        soup.find('meta', {'

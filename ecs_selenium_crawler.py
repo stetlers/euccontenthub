@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -380,8 +380,8 @@ def get_posts_to_crawl(post_ids):
         list: List of dicts with {'post_id': str, 'url': str, 'title': str, 'date': str}
     """
     posts = []
-    for post_id in post_ids:
-        try:
-            response = table.get_item(Key={'post_id': post_id})
-            if 'Item' in response:
-                item = response
+    
+    # DEBUGGING: Log environment and table information
+    print(f"\n=== DEBUG: Crawler Configuration ===")
+    print(f"Environment: {ENVIRONMENT}")
+    print(f"
