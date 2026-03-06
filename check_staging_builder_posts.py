@@ -298,4 +298,4 @@ try:
             # Check March 2026 specifically
             target_month = target_date[:7]
             if target_month in date_counts:
-                avg_count
+                avg_counts

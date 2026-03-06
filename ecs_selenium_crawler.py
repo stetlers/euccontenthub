@@ -31,6 +31,40 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 
+# CloudWatch Logs client for detailed logging
+logs_client = boto3.client('logs', region_name='us-east-1')
+LOG_GROUP_NAME = '/ecs/selenium-crawler'
+
+
+def log_to_cloudwatch(message, level='INFO'):
+    """Send detailed logs to CloudWatch for investigation"""
+    try:
+        timestamp = int(time.time() * 1000)
+        log_stream_name = f"crawler-{datetime.now().strftime('%Y-%m-%d')}"
+        
+        # Create log stream if it doesn't exist
+        try:
+            logs_client.create_log_stream(
+                logGroupName=LOG_GROUP_NAME,
+                logStreamName=log_stream_name
+            )
+        except logs_client.exceptions.ResourceAlreadyExistsException:
+            pass
+        
+        # Put log event
+        logs_client.put_log_events(
+            logGroupName=LOG_GROUP_NAME,
+            logStreamName=log_stream_name,
+            logEvents=[
+                {
+                    'timestamp': timestamp,
+                    'message': f"[{level}] {message}"
+                }
+            ]
+        )
+    except Exception as e:
+        print(f"Warning: Could not log to CloudWatch: {e}")
+
 
 def setup_driver():
     """Set up Chrome driver with headless options for ECS"""
@@ -59,6 +93,7 @@ def is_aws_blog_post(url):
     """
     if not url:
         print(f"  DEBUG: URL is None or empty")
+        log_to_cloudwatch(f"URL check: URL is None or empty", 'DEBUG')
         return False
     
     # Check for AWS blog patterns - including both production and staging
@@ -72,8 +107,10 @@ def is_aws_blog_post(url):
     # Log URL classification
     if is_aws_blog:
         print(f"  DEBUG: URL classified as AWS blog: {url}")
+        log_to_cloudwatch(f"URL classified as AWS blog: {url}", 'DEBUG')
     else:
         print(f"  DEBUG: URL classified as non-AWS blog: {url}")
+        log_to_cloudwatch(f"URL classified as non-AWS blog: {url}", 'DEBUG')
     
     return is_aws_blog
 
@@ -86,10 +123,12 @@ def extract_aws_blog_content(driver, url, max_retries=3):
         dict: {'authors': str, 'content': str} or None if extraction fails
     """
     print(f"  DEBUG: Starting AWS blog content extraction for: {url}")
+    log_to_cloudwatch(f"Starting AWS blog content extraction for: {url}", 'INFO')
     
     for attempt in range(max_retries):
         try:
             print(f"  DEBUG: Attempt {attempt + 1}/{max_retries}: Loading {url}")
+            log_to_cloudwatch(f"Attempt {attempt + 1}/{max_retries}: Loading {url}", 'DEBUG')
             driver.get(url)
             
             # Wait for page to load
@@ -105,10 +144,12 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             current_url = driver.current_url
             print(f"  DEBUG: Page title: {page_title}")
             print(f"  DEBUG: Current URL: {current_url}")
+            log_to_cloudwatch(f"Page title: {page_title}, Current URL: {current_url}", 'DEBUG')
             
             # Check for 404 or error pages
             if "404" in page_title.lower() or "not found" in page_title.lower():
                 print(f"  WARNING: Page appears to be 404")
+                log_to_cloudwatch(f"Page appears to be 404: {url}", 'WARNING')
             
             # Extract author name
             authors = "AWS"  # Default
@@ -137,15 +178,18 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         
                         if authors and authors != "AWS":
                             print(f"  DEBUG: Found author with selector: {selector} - '{authors}'")
+                            log_to_cloudwatch(f"Found author: {authors} with selector: {selector}", 'DEBUG')
                             break
                     except NoSuchElementException:
                         continue
                 
                 if authors == "AWS":
                     print(f"  WARNING: Could not find specific author, using default")
+                    log_to_cloudwatch(f"Could not find specific author for {url}, using default", 'WARNING')
                     
             except Exception as e:
                 print(f"  WARNING: Could not extract author: {e}")
+                log_to_cloudwatch(f"Could not extract author: {e}", 'WARNING')
             
             # Extract content
             content = ""
@@ -169,6 +213,7 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                         content = content_elem.text.strip()
                         if content and len(content) > 100:  # Ensure we got substantial content
                             print(f"  DEBUG: Found content with selector: {selector} (length: {len(content)})")
+                            log_to_cloudwatch(f"Found content with selector: {selector} (length: {len(content)})", 'DEBUG')
                             break
                     except NoSuchElementException:
                         continue
@@ -176,20 +221,25 @@ def extract_aws_blog_content(driver, url, max_retries=3):
                 # If no content found, try getting all text from body
                 if not content or len(content) < 100:
                     print(f"  WARNING: Content too short, trying body text")
+                    log_to_cloudwatch(f"Content too short, trying body text for {url}", 'WARNING')
                     body = driver.find_element(By.TAG_NAME, "body")
                     content = body.text.strip()
                     print(f"  DEBUG: Body text length: {len(content)}")
+                    log_to_cloudwatch(f"Body text length: {len(content)}", 'DEBUG')
                     
             except Exception as e:
                 print(f"  WARNING: Could not extract content: {e}")
+                log_to_cloudwatch(f"Could not extract content: {e}", 'WARNING')
                 content = "Content extraction failed. Visit the full article on AWS Blog."
             
             # Validate content quality
             if len(content) < 100:
                 print(f"  WARNING: Content extraction may have failed (length: {len(content)})")
+                log_to_cloudwatch(f"Content extraction may have failed (length: {len(content)}) for {url}", 'WARNING')
                 try:
                     page_source_preview = driver.page_source[:1000]
                     print(f"  DEBUG: Page source preview: {page_source_preview}")
+                    log_to_cloudwatch(f"Page source preview: {page_source_preview}", 'DEBUG')
                 except Exception as e:
                     print(f"  DEBUG: Could not retrieve page source: {e}")
             
@@ -204,19 +254,23 @@ def extract_aws_blog_content(driver, url, max_retries=3):
             
         except TimeoutException:
             print(f"  WARNING: Timeout on attempt {attempt + 1}")
+            log_to_cloudwatch(f"Timeout on attempt {attempt + 1} for {url}", 'WARNING')
             if attempt < max_retries - 1:
                 print(f"  Retrying after timeout...")
                 time.sleep(2)
             else:
                 print(f"  ERROR: FAILED after {max_retries} timeout attempts")
+                log_to_cloudwatch(f"FAILED after {max_retries} timeout attempts for {url}", 'ERROR')
                 return None
                 
         except Exception as e:
             print(f"  ERROR: Error on attempt {attempt + 1}: {e}")
+            log_to_cloudwatch(f"Error on attempt {attempt + 1} for {url}: {e}", 'ERROR')
             if attempt < max_retries - 1:
                 time.sleep(2)
             else:
                 print(f"  ERROR: FAILED after {max_retries} attempts")
+                log_to_cloudwatch(f"FAILED after {max_retries} attempts for {url}", 'ERROR')
                 return None
     
     return None
@@ -232,6 +286,7 @@ def extract_page_content(driver, url, max_retries=3):
     for attempt in range(max_retries):
         try:
             print(f"  Attempt {attempt + 1}/{max_retries}: Loading {url}")
+            log_to_cloudwatch(f"Attempt {attempt + 1}/{max_retries}: Loading {url}", 'INFO')
             driver.get(url)
             
             # Wait for page to load - increased timeout for dynamic content
@@ -249,21 +304,26 @@ def extract_page_content(driver, url, max_retries=3):
                              len(d.find_elements(By.TAG_NAME, "article")) > 0
                 )
                 print(f"  Content elements detected on page")
+                log_to_cloudwatch(f"Content elements detected on page: {url}", 'DEBUG')
             except TimeoutException:
                 print(f"  Warning: Content elements not detected within timeout, proceeding anyway")
+                log_to_cloudwatch(f"Content elements not detected within timeout for {url}", 'WARNING')
             
             # Debug: Check if page loaded correctly
             page_title = driver.title
             print(f"  Page title: {page_title}")
             current_url = driver.current_url
             print(f"  Current URL: {current_url}")
+            log_to_cloudwatch(f"Page title: {page_title}, Current URL: {current_url}", 'DEBUG')
             
             # Check for common error indicators
             if "404" in page_title.lower() or "not found" in page_title.lower():
                 print(f"  Warning: Page appears to be a 404 error")
+                log_to_cloudwatch(f"Page appears to be 404: {url}", 'WARNING')
                 # Check if URL was redirected
                 if current_url != url:
                     print(f"  Warning: URL was redirected from {url} to {current_url}")
+                    log_to_cloudwatch(f"URL redirected from {url} to {current_url}", 'WARNING')
             
             # Extract author name
             authors = "AWS Builder Community"  # Default
@@ -286,86 +346,3 @@ def extract_page_content(driver, url, max_retries=3):
                     "//a[contains(@href, '/contributors/')]",
                     "//div[contains(@class, 'metadata')]//a"
                 ]
-                
-                for selector in author_selectors:
-                    try:
-                        if selector.startswith("//meta"):
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.get_attribute('content')
-                        else:
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.text.strip()
-                        
-                        if authors and authors != "AWS Builder Community":
-                            print(f"  Found author with selector: {selector} - '{authors}'")
-                            break
-                    except NoSuchElementException:
-                        continue
-                
-                # If still default, try to find any element with author-related text
-                if authors == "AWS Builder Community":
-                    try:
-                        all_spans = driver.find_elements(By.TAG_NAME, "span")
-                        for span in all_spans:
-                            span_text = span.text.strip()
-                            class_name = span.get_attribute('class') or ''
-                            if 'author' in class_name.lower() or 'profile' in class_name.lower() or 'contributor' in class_name.lower():
-                                if span_text and len(span_text) > 3 and len(span_text) < 100:
-                                    authors = span_text
-                                    print(f"  Found author from span search: '{authors}'")
-                                    break
-                    except Exception as e:
-                        print(f"  Warning: Could not search spans for author: {e}")
-                        
-            except Exception as e:
-                print(f"  Warning: Could not extract author: {e}")
-            
-            # Extract content
-            content = ""
-            try:
-                # Try multiple selectors for main content with more comprehensive search
-                content_selectors = [
-                    "//article",
-                    "//main",
-                    "//div[contains(@class, 'content')]",
-                    "//div[contains(@class, 'post-content')]",
-                    "//div[contains(@class, 'entry-content')]",
-                    "//div[contains(@class, 'article-content')]",
-                    "//div[contains(@class, 'post')]",
-                    "//div[contains(@class, 'article')]",
-                    "//div[@role='article']",
-                    "//div[contains(@class, 'blog-post')]",
-                    "//section[contains(@class, 'content')]",
-                    "//div[contains(@class, 'markdown')]",
-                    "//div[contains(@class, 'post-body')]"
-                ]
-                
-                for selector in content_selectors:
-                    try:
-                        content_elem = driver.find_element(By.XPATH, selector)
-                        content = content_elem.text.strip()
-                        if content and len(content) > 100:  # Ensure we got substantial content
-                            print(f"  Found content with selector: {selector} (length: {len(content)})")
-                            break
-                    except NoSuchElementException:
-                        continue
-                
-                # If no content found, try getting all text from body
-                if not content or len(content) < 100:
-                    print(f"  No content with selectors, trying body text")
-                    body = driver.find_element(By.TAG_NAME, "body")
-                    content = body.text.strip()
-                    print(f"  Body text length: {len(content)}")
-                
-                # Additional fallback: try to get all paragraph text
-                if not content or len(content) < 100:
-                    print(f"  Trying paragraph fallback")
-                    paragraphs = driver.find_elements(By.TAG_NAME, "p")
-                    content = "\n".join([p.text.strip() for p in paragraphs if p.text.strip()])
-                    print(f"  Paragraph text length: {len(content)}")
-                    
-            except Exception as e:
-                print(f"  Warning: Could not extract content: {e}")
-                content = "Content extraction failed. Visit the full article on Builder.AWS."
-            
-            # Limit content to
