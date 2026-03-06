@@ -11,12 +11,14 @@ import logging
 import requests
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
+import json
 
 # Configure logging for crawler diagnostics
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+cloudwatch_logs = boto3.client('logs', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
 
 print("Checking Builder.AWS posts status in staging...")
@@ -310,8 +312,4 @@ else:
 print("\nSample URLs from database (first 5):")
 sample_urls = [p.get('url') for p in posts[:5] if p.get('url')]
 for url in sample_urls:
-    print(f"  • {url}")
-
-# ============================================================================
-# NEW: Check for posts with similar titles (near-matches)
-# 
+    print(f"  •

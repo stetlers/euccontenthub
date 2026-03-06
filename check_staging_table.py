@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
+logs_client = boto3.client('logs', region_name='us-east-1')
 
 def check_specific_post(search_title):
     """Search for a specific post by title substring"""
@@ -261,121 +262,170 @@ def analyze_date_filtering_logic(all_posts):
         'future_posts': sorted(future_posts, key=lambda x: x[0])
     }
 
+def get_crawler_logs(log_group_name='/aws/lambda/blog-crawler', hours=24):
+    """Retrieve recent crawler logs from CloudWatch"""
+    try:
+        start_time = int((datetime.now() - timedelta(hours=hours)).timestamp() * 1000)
+        end_time = int(datetime.now().timestamp() * 1000)
+        
+        # Get log streams
+        log_streams_response = logs_client.describe_log_streams(
+            logGroupName=log_group_name,
+            orderBy='LastEventTime',
+            descending=True,
+            limit=5
+        )
+        
+        all_events = []
+        for stream in log_streams_response.get('logStreams', []):
+            stream_name = stream['logStreamName']
+            try:
+                events_response = logs_client.get_log_events(
+                    logGroupName=log_group_name,
+                    logStreamName=stream_name,
+                    startTime=start_time,
+                    endTime=end_time,
+                    limit=1000
+                )
+                all_events.extend(events_response.get('events', []))
+            except ClientError as e:
+                print(f"  Warning: Could not read stream {stream_name}: {e}")
+        
+        return all_events
+    except ClientError as e:
+        print(f"Error retrieving crawler logs: {e}")
+        return []
+
+def analyze_crawler_logs_for_post(log_events, keywords):
+    """Analyze crawler logs for mentions of specific post or filtering decisions"""
+    relevant_logs = []
+    filtering_decisions = []
+    errors = []
+    
+    for event in log_events:
+        message = event.get('message', '')
+        timestamp = datetime.fromtimestamp(event.get('timestamp', 0) / 1000)
+        
+        # Check for keywords related to the missing post
+        if any(keyword.lower() in message.lower() for keyword in keywords):
+            relevant_logs.append({
+                'timestamp': timestamp,
+                'message': message
+            })
+        
+        # Check for filtering decisions
+        if any(phrase in message.lower() for phrase in ['filtered', 'skipped', 'excluding', 'ignoring']):
+            filtering_decisions.append({
+                'timestamp': timestamp,
+                'message': message
+            })
+        
+        # Check for errors
+        if any(phrase in message.lower() for phrase in ['error', 'exception', 'failed', 'warning']):
+            errors.append({
+                'timestamp': timestamp,
+                'message': message
+            })
+    
+    return {
+        'relevant_logs': relevant_logs,
+        'filtering_decisions': filtering_decisions,
+        'errors': errors
+    }
+
+def check_crawler_configuration():
+    """Check crawler Lambda function configuration"""
+    lambda_client = boto3.client('lambda', region_name='us-east-1')
+    
+    # Try common crawler function names
+    function_names = [
+        'blog-crawler',
+        'aws-blog-crawler',
+        'staging-blog-crawler',
+        'blog-posts-crawler'
+    ]
+    
+    for function_name in function_names:
+        try:
+            response = lambda_client.get_function(FunctionName=function_name)
+            config = response.get('Configuration', {})
+            env_vars = config.get('Environment', {}).get('Variables', {})
+            
+            return {
+                'function_name': function_name,
+                'runtime': config.get('Runtime'),
+                'timeout': config.get('Timeout'),
+                'memory': config.get('MemorySize'),
+                'last_modified': config.get('LastModified'),
+                'environment_variables': env_vars,
+                'found': True
+            }
+        except ClientError:
+            continue
+    
+    return {'found': False, 'message': 'Could not find crawler Lambda function'}
+
+def verify_staging_url_direct_access():
+    """Directly test access to staging.awseuccontent.com blog feed"""
+    staging_urls = [
+        'https://staging.awseuccontent.com/blogs/aws/feed/',
+        'https://staging.awseuccontent.com/blog/feed/',
+        'https://staging.awseuccontent.com/feed/',
+    ]
+    
+    results = []
+    for url in staging_urls:
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (compatible; AWS Blog Crawler Debug/1.0)'
+            }
+            response = requests.get(url, headers=headers, timeout=15)
+            results.append({
+                'url': url,
+                'status_code': response.status_code,
+                'accessible': response.status_code == 200,
+                'content_type': response.headers.get('Content-Type', 'Unknown'),
+                'content_length': len(response.content),
+                'contains_workspaces': 'workspaces' in response.text.lower()
+            })
+        except requests.RequestException as e:
+            results.append({
+                'url': url,
+                'accessible': False,
+                'error': str(e)
+            })
+    
+    return results
+
+def check_partial_data_by_fields(all_posts, target_date):
+    """Check for posts with partial data matching target date"""
+    partial_matches = []
+    
+    for post in all_posts:
+        date_published = post.get('date_published', '')
+        
+        # Check if date matches
+        if date_published == target_date:
+            # Check for missing or incomplete fields
+            missing_fields = []
+            if not post.get('title') or post.get('title') == '':
+                missing_fields.append('title')
+            if not post.get('url') or post.get('url') == '':
+                missing_fields.append('url')
+            if not post.get('content') or post.get('content') == '':
+                missing_fields.append('content')
+            if not post.get('source') or post.get('source') == '':
+                missing_fields.append('source')
+            
+            if missing_fields or len(post.keys()) < 5:  # Typical post should have more fields
+                partial_matches.append({
+                    'post': post,
+                    'missing_fields': missing_fields,
+                    'total_fields': len(post.keys())
+                })
+    
+    return partial_matches
+
 try:
     # Get total count
     response = table.scan(Select='COUNT')
-    total_count = response['Count']
-    
-    print(f"Total posts in staging: {total_count}")
-    
-    # Get a few sample posts
-    response = table.scan(Limit=5)
-    posts = response.get('Items', [])
-    
-    print(f"\nSample posts:")
-    for post in posts:
-        print(f"  - {post.get('post_id')}: {post.get('title', 'No title')[:60]}...")
-        print(f"    Source: {post.get('source', 'Unknown')}")
-        print(f"    Date: {post.get('date_published', 'Unknown')}")
-        print()
-    
-    # Get all posts for comprehensive analysis
-    response = table.scan()
-    all_posts = response.get('Items', [])
-    
-    # Handle pagination if there are more items
-    while 'LastEvaluatedKey' in response:
-        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-        all_posts.extend(response.get('Items', []))
-    
-    print(f"Total posts loaded for analysis: {len(all_posts)}")
-    
-    # Analyze all attributes in the table
-    print(f"\n[SCHEMA ANALYSIS] Analyzing table structure...")
-    all_attributes, attribute_examples = check_all_attributes(all_posts)
-    print(f"  Attributes found in posts: {', '.join(all_attributes)}")
-    print(f"\n  Sample values:")
-    for attr, example in attribute_examples.items():
-        print(f"    - {attr}: {example}")
-    
-    # Count by source
-    aws_blog_count = sum(1 for p in all_posts if 'aws.amazon.com' in p.get('source', ''))
-    builder_count = sum(1 for p in all_posts if 'builder.aws.com' in p.get('source', ''))
-    staging_count = sum(1 for p in all_posts if 'staging.awseuccontent.com' in p.get('source', '') or 'staging.awseuccontent.com' in p.get('url', ''))
-    
-    print(f"\nPosts by source:")
-    print(f"  AWS Blog: {aws_blog_count}")
-    print(f"  Builder.AWS: {builder_count}")
-    print(f"  Staging.awseuccontent.com: {staging_count}")
-    
-    # Analyze all source domains
-    print(f"\n[SOURCE ANALYSIS] All source domains found:")
-    source_domains = analyze_source_patterns(all_posts)
-    for domain, count in list(source_domains.items())[:10]:
-        print(f"  - {domain}: {count} post(s)")
-    
-    # Debug: Check for the specific missing post
-    print("\n" + "="*80)
-    print("DEBUGGING: Checking for missing post")
-    print("Target: 'Amazon WorkSpaces launches Graphics G6, Gr6, and G6f bundles'")
-    print("Expected Date: March 2, 2026 (2026-03-02)")
-    print("Expected Source: staging.awseuccontent.com")
-    print("="*80)
-    
-    # Search by title variations
-    search_variations = [
-        "WorkSpaces launches Graphics",
-        "WorkSpaces Graphics G6",
-        "Graphics G6",
-        "Gr6",
-        "G6f bundles",
-        "WorkSpaces",
-        "Amazon WorkSpaces",
-        "Graphics bundles"
-    ]
-    
-    print(f"\n[TEST 1] Searching by title variations...")
-    all_matches = []
-    for search_title in search_variations:
-        matching_posts = check_specific_post(search_title)
-        if matching_posts:
-            all_matches.extend(matching_posts)
-            print(f"  ✓ Found {len(matching_posts)} match(es) for '{search_title}'")
-    
-    # Deduplicate matches
-    unique_matches = {post.get('post_id'): post for post in all_matches}.values()
-    
-    if unique_matches:
-        print(f"\n✓ Total unique matching post(s): {len(unique_matches)}")
-        for post in unique_matches:
-            print(f"  - {post.get('title')}")
-            print(f"    ID: {post.get('post_id')}")
-            print(f"    Source: {post.get('source')}")
-            print(f"    Date: {post.get('date_published')}")
-            print(f"    URL: {post.get('url', 'N/A')}")
-            print(f"    Crawled at: {post.get('crawled_timestamp', 'N/A')}")
-    else:
-        print("  ❌ ISSUE DETECTED: No posts found matching any title variation")
-    
-    # Comprehensive keyword search across all fields
-    print(f"\n[TEST 2] Comprehensive search for 'Graphics G6' across all fields...")
-    comprehensive_matches = check_url_in_all_fields('Graphics G6')
-    if comprehensive_matches:
-        print(f"  ✓ Found {len(comprehensive_matches)} match(es) with 'Graphics G6' anywhere in data:")
-        for post in comprehensive_matches[:5]:
-            print(f"    - [{post.get('date_published')}] {post.get('title', 'No title')[:60]}...")
-    else:
-        print("  ❌ ISSUE DETECTED: No posts found with 'Graphics G6' in any field")
-    
-    # Search by URL pattern for WorkSpaces
-    print(f"\n[TEST 3] Searching by URL pattern (workspaces)...")
-    workspaces_posts = check_posts_by_url_pattern('workspaces')
-    if workspaces_posts:
-        print(f"  ✓ Found {len(workspaces_posts)} post(s) with 'workspaces' in URL:")
-        for post in workspaces_posts[:5]:
-            print(f"    - [{post.get('date_published')}] {post.get('title', 'No title')[:60]}...")
-    else:
-        print("  ⚠️  No posts found with 'workspaces' in URL")
-    
-    # Check for posts on March 2, 2026
-    target_date = '2026

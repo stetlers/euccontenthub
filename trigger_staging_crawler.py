@@ -2,10 +2,10 @@
 """
 Trigger staging crawler via API with specific URL targeting
 Enhanced with date filtering diagnostics and crawler validation
-Version 2.9 - Investigation and fix for March 2, 2026 WorkSpaces Graphics G6 post
+Version 3.0 - Comprehensive investigation for March 2, 2026 WorkSpaces Graphics G6 post
 Root cause: Post from March 2, 2026 not being detected - investigating date filtering,
 URL patterns, scraping selectors, and publication status
-New: Comprehensive diagnostics, selector validation, crawler configuration audit
+New: DynamoDB staging table inspection, crawler log retrieval, configuration audit
 """
 
 import json
@@ -19,6 +19,8 @@ import re
 
 STAGING_API = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/crawl'
 DYNAMODB_VERIFICATION_API = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/verify'
+STAGING_TABLE_QUERY_API = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/query'
+CRAWLER_LOGS_API = 'https://xox05733ce.execute-api.us-east-1.amazonaws.com/staging/logs'
 
 # Specific blog post URL that needs to be crawled
 TARGET_BLOG_POST = 'https://aws.amazon.com/blogs/desktop-and-application-streaming/amazon-workspaces-launches-graphics-g6-gr6-and-g6f-bundles/'
@@ -30,7 +32,7 @@ EXPECTED_POST_DATE = '2026-03-02'
 INVESTIGATION_ID = hashlib.md5(f"{TARGET_BLOG_POST}{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
 
 print("=" * 80)
-print("STAGING CRAWLER INVESTIGATION - VERSION 2.9 - POST DETECTION DIAGNOSTICS")
+print("STAGING CRAWLER INVESTIGATION - VERSION 3.0 - COMPREHENSIVE DIAGNOSTICS")
 print("=" * 80)
 print(f"Investigation ID: {INVESTIGATION_ID}")
 print(f"Target: {TARGET_BLOG_POST}")
@@ -49,7 +51,7 @@ page_content = ""
 http_status = None
 
 try:
-    req = urllib.request.Request(TARGET_BLOG_POST, headers={'User-Agent': 'AWS-BlogCrawler-Investigation/2.9'})
+    req = urllib.request.Request(TARGET_BLOG_POST, headers={'User-Agent': 'AWS-BlogCrawler-Investigation/3.0'})
     with urllib.request.urlopen(req, timeout=30) as response:
         status_code = response.status
         http_status = status_code
@@ -254,65 +256,50 @@ except Exception as e:
     print(f"⚠️  WARNING: Could not parse expected date: {e}")
     print()
 
-# Investigation summary
-print("=" * 80)
-print("INVESTIGATION SUMMARY & ROOT CAUSE ANALYSIS")
-print("=" * 80)
-print()
-
-issues_found = []
-critical_issues = []
-
-if not url_accessible or http_status != 200:
-    critical_issues.append("Post URL not accessible or not published (HTTP " + str(http_status) + ")")
-
-if not dates_found:
-    critical_issues.append("No date metadata found - scraping selectors may be inadequate")
-elif dates_found and not any(EXPECTED_POST_DATE in d['date'] for d in dates_found):
-    critical_issues.append(f"Expected date '{EXPECTED_POST_DATE}' not in page metadata - date mismatch")
-
-if date_filter_issue:
-    issues_found.append("Future date filtering may reject this post")
-
-if response_details.get('redirected'):
-    issues_found.append("URL redirects - crawler must follow redirects properly")
-
-print("CRITICAL ISSUES (will prevent detection):")
-if critical_issues:
-    for i, issue in enumerate(critical_issues, 1):
-        print(f"  {i}. ❌ {issue}")
-else:
-    print("  None detected")
-
-print()
-print("POTENTIAL ISSUES (may prevent detection):")
-if issues_found:
-    for i, issue in enumerate(issues_found, 1):
-        print(f"  {i}. ⚠️  {issue}")
-else:
-    print("  None detected")
-
-print()
+# NEW: Check staging DynamoDB table for partial data
+print("PRE-FLIGHT CHECK 6: STAGING TABLE INSPECTION")
 print("-" * 80)
-print("FIXES APPLIED IN THIS CRAWL:")
-print("-" * 80)
-print()
-print("1. DATE FILTERING FIXES:")
-print("   ✓ Completely disabled date filtering (date_filters.enabled = False)")
-print("   ✓ Accept future dates (accept_future_dates = True)")
-print("   ✓ Bypass all date validation (bypass_all_date_checks = True)")
-print("   ✓ Don't reject on date parsing failure")
-print("   ✓ Make date field optional (require_date = False)")
-print("   ✓ Extended date range to ±10 years")
-print()
-print("2. URL PATTERN FIXES:")
-print("   ✓ Direct URL targeting (skip discovery)")
-print("   ✓ Disabled pattern matching validation")
-print("   ✓ Added multiple catch-all patterns")
-print("   ✓ Include exact post slug and category patterns")
-print()
-print("3. SCRAPING SELECTOR ENHANCEMENTS:")
-print("   ✓ Added 30+ date metadata selectors")
-print("   ✓ JSON-LD, Open Graph, Schema.org, Microdata")
-print("   ✓ Dublin Core, article tags, time elements")
-print("   ✓
+staging_data_found = False
+staging_records = []
+
+try:
+    # Query staging table for this URL or partial matches
+    url_hash = hashlib.sha256(TARGET_BLOG_POST.encode()).hexdigest()
+    
+    query_payload = {
+        'action': 'query_by_url',
+        'url': TARGET_BLOG_POST,
+        'url_hash': url_hash,
+        'include_partial': True,
+        'investigation_id': INVESTIGATION_ID
+    }
+    
+    print(f"Querying staging table for URL: {TARGET_BLOG_POST}")
+    print(f"URL hash: {url_hash}")
+    
+    req = urllib.request.Request(
+        STAGING_TABLE_QUERY_API,
+        data=json.dumps(query_payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'User-Agent': 'AWS-BlogCrawler-Investigation/3.0'}
+    )
+    
+    with urllib.request.urlopen(req, timeout=30) as response:
+        result = json.loads(response.read().decode('utf-8'))
+        
+        if result.get('statusCode') == 200:
+            body = json.loads(result.get('body', '{}'))
+            staging_records = body.get('records', [])
+            
+            if staging_records:
+                print(f"✓  Found {len(staging_records)} record(s) in staging table")
+                staging_data_found = True
+                
+                for idx, record in enumerate(staging_records, 1):
+                    print(f"\n   Record {idx}:")
+                    print(f"      URL: {record.get('url', 'N/A')}")
+                    print(f"      Title: {record.get('title', 'N/A')[:80]}")
+                    print(f"      Date: {record.get('published_date', 'N/A')}")
+                    print(f"      Status: {record.get('status', 'N/A')}")
+                    print(f"      Crawled: {record.get('crawl_timestamp', 'N/A')}")
+                    print(f"      Filtered: {record.get('filtered', 'N/A')}")
+                    print(f"      Filter Reason: {recor
