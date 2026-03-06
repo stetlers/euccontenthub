@@ -60,6 +60,9 @@ try:
     html_structure_logs = []
     content_extraction_logs = []
     post_validation_logs = []
+    storage_mechanism_logs = []
+    database_insertion_logs = []
+    duplicate_check_logs = []
     
     for stream in streams['logStreams']:
         stream_name = stream['logStreamName']
@@ -121,13 +124,13 @@ try:
                     date_filter_info.append(message)
                     print(f"→ Target date mention: {message}")
                 
-                # NEW: Date parsing error detection
+                # Date parsing error detection
                 if any(keyword in message_lower for keyword in ['date parse', 'date parsing', 'parse date', 'invalid date', 'date format', 'date conversion']):
                     date_parsing_errors.append(message)
                     if 'error' in message_lower or 'fail' in message_lower:
                         print(f"⚠ Date parsing error: {message}")
                 
-                # NEW: Date comparison logging
+                # Date comparison logging
                 if any(keyword in message_lower for keyword in ['date comparison', 'comparing dates', 'date check', 'date older than', 'date newer than', 'within date range']):
                     date_comparison_logs.append(message)
                     if 'workspaces' in message_lower or '2026-03' in message or 'march 2026' in message_lower:
@@ -139,7 +142,7 @@ try:
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ URL detection: {message}")
                 
-                # NEW: URL metadata parsing issues
+                # URL metadata parsing issues
                 if any(keyword in message_lower for keyword in ['metadata', 'meta tag', 'og:published', 'article:published', 'pubdate', 'publish date']):
                     url_metadata_issues.append(message)
                     if 'workspaces' in message_lower or 'error' in message_lower or 'missing' in message_lower:
@@ -151,29 +154,47 @@ try:
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ Scraping pattern: {message}")
                 
-                # NEW: Feed parsing logs
+                # Feed parsing logs
                 if any(keyword in message_lower for keyword in ['feed parsing', 'parsing feed', 'feed entry', 'feed item', 'rss entry', 'atom entry']):
                     feed_parsing_logs.append(message)
                     if BLOG_CATEGORY in message_lower or 'workspaces' in message_lower:
                         print(f"→ Feed parsing: {message}")
                 
-                # NEW: HTML structure analysis
+                # HTML structure analysis
                 if any(keyword in message_lower for keyword in ['html structure', 'dom parsing', 'element not found', 'selector failed', 'missing element']):
                     html_structure_logs.append(message)
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ HTML structure: {message}")
                 
-                # NEW: Content extraction logging
+                # Content extraction logging
                 if any(keyword in message_lower for keyword in ['extracting content', 'content extracted', 'extraction failed', 'title extracted', 'date extracted']):
                     content_extraction_logs.append(message)
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ Content extraction: {message}")
                 
-                # NEW: Post validation logging
+                # Post validation logging
                 if any(keyword in message_lower for keyword in ['validating post', 'post validation', 'validation failed', 'validation passed', 'post valid', 'post invalid']):
                     post_validation_logs.append(message)
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ Post validation: {message}")
+                
+                # Storage mechanism logging
+                if any(keyword in message_lower for keyword in ['storing', 'saving', 'persisting', 'storage', 'write to', 'save to']):
+                    storage_mechanism_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower or 'staging' in message_lower:
+                        print(f"→ Storage mechanism: {message}")
+                
+                # Database insertion logging
+                if any(keyword in message_lower for keyword in ['database insert', 'db insert', 'inserting into', 'insert query', 'dynamodb put', 's3 upload', 'writing to database']):
+                    database_insertion_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
+                        print(f"→ Database insertion: {message}")
+                
+                # Duplicate check logging
+                if any(keyword in message_lower for keyword in ['duplicate', 'already exists', 'existing post', 'duplicate check', 'checking for duplicates']):
+                    duplicate_check_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
+                        print(f"→ Duplicate check: {message}")
                 
                 # Check for RSS feed processing
                 if 'rss' in message_lower or 'feed' in message_lower:
@@ -203,7 +224,7 @@ try:
                     if BLOG_CATEGORY in message_lower or 'workspaces' in message_lower:
                         crawl_errors.append(message)
                 
-                # NEW: Enhanced detection for skipped or filtered posts
+                # Enhanced detection for skipped or filtered posts
                 if any(keyword in message_lower for keyword in ['skipped', 'filtered', 'excluded', 'ignored', 'not processing', 'rejected', 'skipping']):
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower or any(date_var in message_lower for date_var in [d.lower() for d in TARGET_DATE_VARIATIONS]):
                         blog_post_skipped.append(message)
@@ -238,7 +259,7 @@ try:
     else:
         print("\n⚠ NO DATE FILTERING INFO FOUND - May indicate missing date filter logging")
     
-    # NEW: Report date parsing errors
+    # Report date parsing errors
     if date_parsing_errors:
         print(f"\n⚠ DATE PARSING ERRORS DETECTED ({len(date_parsing_errors)} entries):")
         for error in date_parsing_errors[-10:]:
@@ -246,7 +267,7 @@ try:
     else:
         print("\n→ No date parsing errors detected")
     
-    # NEW: Report date comparison logs
+    # Report date comparison logs
     if date_comparison_logs:
         print(f"\n→ DATE COMPARISON LOGS ({len(date_comparison_logs)} entries):")
         for log in date_comparison_logs[-15:]:
@@ -262,7 +283,7 @@ try:
     else:
         print("\n⚠ NO URL DETECTION INFO FOUND - May indicate missing URL detection logging")
     
-    # NEW: Report URL metadata issues
+    # Report URL metadata issues
     if url_metadata_issues:
         print(f"\n→ URL METADATA PARSING ({len(url_metadata_issues)} entries):")
         for issue in url_metadata_issues[-10:]:
@@ -278,7 +299,7 @@ try:
     else:
         print("\n⚠ NO SCRAPING PATTERN INFO FOUND - May indicate missing scraping logging")
     
-    # NEW: Report feed parsing logs
+    # Report feed parsing logs
     if feed_parsing_logs:
         print(f"\n→ FEED PARSING LOGS ({len(feed_parsing_logs)} entries):")
         for log in feed_parsing_logs[-10:]:
@@ -286,29 +307,3 @@ try:
     else:
         print("\n⚠ NO FEED PARSING LOGS - Feed processing may not be logged")
     
-    # NEW: Report HTML structure logs
-    if html_structure_logs:
-        print(f"\n→ HTML STRUCTURE ANALYSIS ({len(html_structure_logs)} entries):")
-        for log in html_structure_logs[-10:]:
-            print(f"  - {log}")
-    
-    # NEW: Report content extraction logs
-    if content_extraction_logs:
-        print(f"\n→ CONTENT EXTRACTION LOGS ({len(content_extraction_logs)} entries):")
-        for log in content_extraction_logs[-10:]:
-            print(f"  - {log}")
-    else:
-        print("\n⚠ NO CONTENT EXTRACTION LOGS - Content extraction may not be logged")
-    
-    # NEW: Report post validation logs
-    if post_validation_logs:
-        print(f"\n→ POST VALIDATION LOGS ({len(post_validation_logs)} entries):")
-        for log in post_validation_logs[-10:]:
-            print(f"  - {log}")
-    else:
-        print("\n⚠ NO POST VALIDATION LOGS - Post validation may not be logged")
-    
-    # NEW: Report blog post skipped entries
-    if blog_post_skipped:
-        print(f"\n⚠ BLOG POSTS SKIPPED/FILTERED ({len(blog_post_skipped)} entries):")
-        for entry
