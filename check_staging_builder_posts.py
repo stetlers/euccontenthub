@@ -16,7 +16,8 @@ diagnostics = {
     'url_filtering_issues': [],
     'date_parsing_issues': [],
     'storage_issues': [],
-    'crawler_logic_issues': []
+    'crawler_logic_issues': [],
+    'content_detection_issues': []
 }
 
 # Check for the specific Amazon WorkSpaces blog post from March 2, 2026
@@ -35,11 +36,13 @@ target_date = '2026-03-02'
 # DIAGNOSTIC STEP 1: Database Storage Check
 print("STEP 1: DATABASE STORAGE VERIFICATION")
 print("-" * 80)
+post_found_in_db = False
 try:
     response = table.get_item(Key={'url': target_url})
     
     if 'Item' in response:
         post = response['Item']
+        post_found_in_db = True
         print("✓ POST FOUND in staging database!")
         print(f"  Title: {post.get('title', 'N/A')}")
         print(f"  Source: {post.get('source', 'N/A')}")
@@ -131,7 +134,7 @@ try:
                     diagnostics['crawler_logic_issues'].append("Post exists on web but not stored in database")
                 else:
                     print("    ⚠ Could not extract title from page - possible HTML structure issue")
-                    diagnostics['crawler_logic_issues'].append("Could not parse HTML structure")
+                    diagnostics['content_detection_issues'].append("Could not parse HTML structure - title tag missing")
                     
             elif web_response.status_code == 404:
                 print(f"    ✗ Post returns 404 - Not published or URL incorrect")
@@ -295,7 +298,4 @@ try:
             for month in sorted(date_counts.keys(), reverse=True)[:12]:
                 print(f"    {month}: {date_counts[month]} posts")
             
-            # Check March 2026 specifically
-            target_month = target_date[:7]
-            if target_month in date_counts:
-                avg_counts
+            #
