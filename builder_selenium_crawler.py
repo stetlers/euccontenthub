@@ -21,6 +21,10 @@ dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE_NAME', 'aws-blog-posts')
 table = dynamodb.Table(TABLE_NAME)
 
+# Staging table setup for diagnostic purposes
+STAGING_TABLE_NAME = os.environ.get('STAGING_TABLE_NAME', 'aws-blog-posts-staging')
+staging_table = dynamodb.Table(STAGING_TABLE_NAME)
+
 # Lambda client for invoking summary generator
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 
@@ -148,13 +152,72 @@ def update_post_in_dynamodb(post_id, authors, content):
         return False
 
 
-def get_posts_to_crawl(post_ids=None, date_filter_days=None):
+def check_staging_table_for_post(target_date='2026-03-02', keywords=None):
     """
-    Get posts to crawl from DynamoDB
+    Check staging table for posts matching criteria
+    
+    Args:
+        target_date: Date string to search for (YYYY-MM-DD format)
+        keywords: List of keywords to search for in title/content
+        
+    Returns:
+        list: List of matching posts from staging table
+    """
+    if keywords is None:
+        keywords = ['workspaces', 'graphics', 'g6', 'gr6', 'g6f', 'bundle']
+    
+    try:
+        print(f"\n=== CHECKING STAGING TABLE: {STAGING_TABLE_NAME} ===")
+        response = staging_table.scan()
+        
+        matching_posts = []
+        for item in response.get('Items', []):
+            url = item.get('url', '')
+            title = item.get('title', '')
+            published_date = item.get('published_date', '')
+            post_id = item.get('post_id', '')
+            text = f"{url} {title}".lower()
+            
+            # Check if matches our target criteria
+            date_match = target_date in published_date
+            keyword_match = any(keyword in text for keyword in keywords)
+            
+            if date_match or keyword_match:
+                matching_posts.append({
+                    'post_id': post_id,
+                    'title': title,
+                    'url': url,
+                    'published_date': published_date,
+                    'date_match': date_match,
+                    'keyword_match': keyword_match,
+                    'matched_keywords': [kw for kw in keywords if kw in text]
+                })
+        
+        print(f"  Found {len(matching_posts)} matching posts in staging table")
+        for post in matching_posts:
+            print(f"\n  Post: {post['title']}")
+            print(f"    ID: {post['post_id']}")
+            print(f"    Date: {post['published_date']}")
+            print(f"    URL: {post['url']}")
+            print(f"    Date Match: {post['date_match']}")
+            print(f"    Keyword Match: {post['keyword_match']}")
+            print(f"    Matched Keywords: {post['matched_keywords']}")
+        
+        return matching_posts
+        
+    except Exception as e:
+        print(f"  Error checking staging table: {e}")
+        return []
+
+
+def get_posts_to_crawl(post_ids=None, date_filter_days=None, enable_diagnostics=True):
+    """
+    Get posts to crawl from DynamoDB with enhanced diagnostics
     
     Args:
         post_ids: List of specific post IDs to crawl (optional)
         date_filter_days: Only crawl posts from the last N days (optional)
+        enable_diagnostics: Enable detailed diagnostic logging (default: True)
         
     Returns:
         list: List of dicts with {'post_id': str, 'url': str, 'published_date': str}
@@ -178,7 +241,6 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
         return posts
     else:
         # Scan for all EUC-related posts from Builder.AWS AND AWS Blogs
-        # Modified to handle both domains for complete EUC coverage
         try:
             response = table.scan()
             
@@ -207,6 +269,28 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
             target_post_found = False
             target_post_details = None
             
+            # Enhanced EUC-related keywords including all WorkSpaces Graphics bundle variations
+            euc_keywords = [
+                'euc', 'end-user-computing', 'end user computing',
+                'workspaces', 'appstream', 'workspace',
+                'end user', 'desktop', 'virtual desktop',
+                'vdi', 'daas', 'desktop-and-application-streaming',
+                'application streaming', 'graphics', 'bundle',
+                'workspaces graphics', 'graphics bundle', 'g6 bundle',
+                'g6.xlarge', 'g6.2xlarge', 'graphics workspaces',
+                'g6 bundles', 'graphics.g6', 'gr6', 'g6f',
+                'graphics g6', 'gr6 bundle', 'g6f bundle',
+                'workspaces web', 'workspace web',
+                'amazon workspaces', 'aws workspaces',
+                'launches graphics', 'launch graphics',
+                'workspaces launch', 'graphics launch',
+                'g6,', 'gr6,', 'g6f,',
+                ' g6 ', ' gr6 ', ' g6f ',
+                'g6, gr6', 'gr6, and g6f', 'g6, gr6, and g6f',
+                'workspaces graphics g6', 'amazon workspaces graphics',
+                'workspaces family', 'bundles for', 'graphics bundles'
+            ]
+            
             for item in response.get('Items', []):
                 all_posts_count += 1
                 url = item.get('url', '')
@@ -216,18 +300,21 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 post_id = item.get('post_id', '')
                 text = f"{url} {title}".lower()
                 
-                # DIAGNOSTIC: Enhanced detection for the March 2, 2026 WorkSpaces Graphics post
+                # Enhanced detection for the March 2, 2026 WorkSpaces Graphics post
                 is_target_post = (
                     ('2026-03-02' in published_date) or
                     ('2026-03-2' in published_date) or
                     ('march 2, 2026' in published_date.lower()) or
                     ('03/02/2026' in published_date) or
-                    ('workspaces' in title.lower() and 'graphics' in title.lower() and ('g6' in title.lower() or 'gr6' in title.lower() or 'g6f' in title.lower())) or
+                    (('workspaces' in title.lower() or 'workspace' in title.lower()) and 
+                     'graphics' in title.lower() and 
+                     ('g6' in title.lower() or 'gr6' in title.lower() or 'g6f' in title.lower())) or
                     ('amazon workspaces graphics g6' in text) or
-                    ('workspaces graphics g6, gr6, and g6f bundles' in text)
+                    ('workspaces graphics g6, gr6, and g6f bundles' in text) or
+                    ('workspaces graphics' in text and ('g6' in text or 'gr6' in text or 'g6f' in text))
                 )
                 
-                if is_target_post:
+                if is_target_post and enable_diagnostics:
                     target_post_found = True
                     target_post_details = {
                         'post_id': post_id,
@@ -236,17 +323,18 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                         'published_date': published_date,
                         'source': source
                     }
-                    print(f"\n>>> DIAGNOSTIC: FOUND TARGET POST: {title}")
+                    print(f"\n{'='*80}")
+                    print(f">>> DIAGNOSTIC: FOUND TARGET POST (March 2, 2026 WorkSpaces Graphics)")
+                    print(f"{'='*80}")
                     print(f"    Post ID: {post_id}")
+                    print(f"    Title: {title}")
                     print(f"    URL: {url}")
                     print(f"    Published: {published_date}")
                     print(f"    Source: {source}")
                 
-                # FIX: Enhanced date filtering with better error handling and timezone awareness
-                # Also handles future dates (like 2026) properly
+                # Enhanced date filtering with better error handling and timezone awareness
                 if cutoff_date and published_date:
                     try:
-                        # Parse published_date - handle multiple formats
                         post_date = None
                         
                         if 'T' in published_date:
@@ -254,7 +342,6 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                             try:
                                 post_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
                             except ValueError:
-                                # Try without timezone info
                                 post_date = datetime.fromisoformat(published_date.split('+')[0].split('Z')[0])
                                 post_date = post_date.replace(tzinfo=timezone.utc)
                         else:
@@ -266,88 +353,16 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                         if cutoff_date.tzinfo is None:
                             cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
                         
-                        # FIX: Include future dates (like 2026) - only filter out dates BEFORE cutoff
+                        # Include future dates (like 2026) - only filter out dates BEFORE cutoff
                         if post_date < cutoff_date:
-                            if is_target_post:
-                                print(f"    >>> DIAGNOSTIC: Target post skipped by date filter!")
+                            if is_target_post and enable_diagnostics:
+                                print(f"    >>> DIAGNOSTIC: Target post FILTERED OUT by date")
                                 print(f"        Post date: {post_date}")
                                 print(f"        Cutoff date: {cutoff_date}")
+                                print(f"        Decision: SKIPPED")
                             skipped_by_date += 1
-                            continue  # Skip posts older than cutoff
-                        elif is_target_post:
+                            continue
+                        elif is_target_post and enable_diagnostics:
                             print(f"    >>> DIAGNOSTIC: Target post PASSED date filter")
                             print(f"        Post date: {post_date}")
-                            print(f"        Cutoff date: {cutoff_date}")
-                    except (ValueError, TypeError) as e:
-                        # Track date parsing errors for diagnostics
-                        date_parse_errors.append({
-                            'post_id': post_id,
-                            'published_date': published_date,
-                            'error': str(e)
-                        })
-                        print(f"  Warning: Could not parse date for {post_id}: {published_date} - {e}")
-                        if is_target_post:
-                            print(f"    >>> DIAGNOSTIC: Target post had date parsing error - INCLUDING BY DEFAULT!")
-                        # Include the post to be safe when date parsing fails
-                
-                # FIX: Enhanced source domain detection including all staging variants
-                is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
-                is_aws_blog = (
-                    'aws.amazon.com/blogs' in url or 
-                    'awsblogscontent.com' in url or 
-                    'aws.amazon.com/blogs' in source or
-                    'awsblogscontent.com' in source
-                )
-                # FIX: Comprehensive staging detection with multiple patterns
-                is_staging = (
-                    'staging' in url.lower() or 
-                    'staging' in source.lower() or 
-                    'staging.awseuccontent.com' in url.lower() or 
-                    'staging.awseuccontent.com' in source.lower() or
-                    '.awseuccontent.com' in url.lower() or
-                    '.awseuccontent.com' in source.lower() or
-                    'staging.' in url.lower() or
-                    'staging.' in source.lower() or
-                    'awseuccontent' in url.lower() or
-                    'awseuccontent' in source.lower()
-                )
-                
-                if is_target_post:
-                    print(f"    >>> DIAGNOSTIC: Source checks:")
-                    print(f"        is_builder: {is_builder}")
-                    print(f"        is_aws_blog: {is_aws_blog}")
-                    print(f"        is_staging: {is_staging}")
-                
-                # FIX: Comprehensive EUC-related keywords including all graphics bundle variations
-                # Enhanced with more specific patterns for WorkSpaces Graphics bundles
-                euc_keywords = [
-                    'euc', 'end-user-computing', 'end user computing',
-                    'workspaces', 'appstream', 'workspace',
-                    'end user', 'desktop', 'virtual desktop',
-                    'vdi', 'daas', 'desktop-and-application-streaming',
-                    'application streaming', 'graphics', 'bundle',
-                    'workspaces graphics', 'graphics bundle', 'g6 bundle',
-                    'g6.xlarge', 'g6.2xlarge', 'graphics workspaces',
-                    'g6 bundles', 'graphics.g6', 'gr6', 'g6f',
-                    'graphics g6', 'gr6 bundle', 'g6f bundle',
-                    'workspaces web', 'workspace web',
-                    'amazon workspaces', 'aws workspaces',
-                    'launches graphics', 'launch graphics',
-                    'workspaces launch', 'graphics launch',
-                    'g6,', 'gr6,', 'g6f,',  # Handle comma-separated lists in titles
-                    ' g6 ', ' gr6 ', ' g6f ',  # Space-delimited to avoid false matches
-                    'g6, gr6', 'gr6, and g6f', 'g6, gr6, and g6f',  # Combination patterns
-                    'workspaces graphics g6', 'amazon workspaces graphics',
-                    'workspaces family', 'bundles for', 'graphics bundles'
-                ]
-                
-                # FIX: Enhanced detection logic with case-insensitive matching
-                is_euc_related = any(keyword in text for keyword in euc_keywords)
-                is_das_category = '/desktop-and-application-streaming/' in url
-                
-                if is_target_post:
-                    print(f"    >>> DIAGNOSTIC: Keyword checks:")
-                    print(f"        is_euc_related: {is_euc_related}")
-                    print(f"        is_das_category: {is_das_category}")
-                    print(f"        text sample: {text[:500]}")
-                    matched_keywords = [kw for kw in euc_keywords if kw in text
+                            print(f"        Cutoff date: {cut

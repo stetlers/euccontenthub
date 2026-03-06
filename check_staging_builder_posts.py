@@ -18,7 +18,8 @@ diagnostics = {
     'storage_issues': [],
     'crawler_logic_issues': [],
     'content_detection_issues': [],
-    'metadata_extraction_issues': []
+    'metadata_extraction_issues': [],
+    'filtering_criteria_issues': []
 }
 
 # Check for the specific Amazon WorkSpaces blog post from March 2, 2026
@@ -50,6 +51,15 @@ try:
         print(f"  Date: {post.get('date', 'N/A')}")
         print(f"  Last crawled: {post.get('last_crawled', 'Never')}")
         print(f"  Storage timestamp: {post.get('timestamp', 'N/A')}")
+        print(f"  Tags: {post.get('tags', [])}")
+        print(f"  Categories: {post.get('categories', [])}")
+        
+        # Check for filtering flags
+        if post.get('filtered'):
+            print(f"  ⚠ FILTERED FLAG: {post.get('filtered')}")
+            print(f"  Filter reason: {post.get('filter_reason', 'N/A')}")
+            diagnostics['filtering_criteria_issues'].append(f"Post filtered: {post.get('filter_reason', 'Unknown')}")
+        
         print("\n✓ STORAGE MECHANISM: Working correctly - post is stored")
         print()
     else:
@@ -267,15 +277,4 @@ try:
     print(f"Checking if blog path '{url_components['base_path']}' is being crawled...")
     
     response = table.scan(
-        FilterExpression='contains(#url, :blog_path)',
-        ExpressionAttributeNames={'#url': 'url'},
-        ExpressionAttributeValues={':blog_path': url_components['base_path']}
-    )
-    
-    das_posts = response['Items']
-    while 'LastEvaluatedKey' in response:
-        response = table.scan(
-            FilterExpression='contains(#url, :blog_path)',
-            ExpressionAttributeNames={'#url': 'url'},
-            ExpressionAttributeValues={':blog_path': url_components['base_path']},
-            ExclusiveStartKey=response
+        FilterExpression='contains(

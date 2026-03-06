@@ -63,6 +63,10 @@ class AWSBlogCrawler:
         self.posts_created = 0
         self.posts_needing_summaries = 0
         self.posts_needing_classification = 0
+        self.target_post_found = False
+        self.target_post_url = None
+        self.target_post_details = {}
+        self.filtering_log = []
     
     def get_page(self, url, retries=3):
         """Fetch a page with retry logic"""
@@ -73,14 +77,84 @@ class AWSBlogCrawler:
                 response.raise_for_status()
                 print(f"[DEBUG] Successfully fetched {url} - Status: {response.status_code}")
                 print(f"[DEBUG] Response content length: {len(response.text)} bytes")
+                
+                # BUGFIX: Log response for March 2, 2026 target post
+                if '/2026/03/02/' in url or 'workspaces' in url.lower() and 'g6' in url.lower():
+                    print(f"[DEBUG] *** TARGET POST RESPONSE RECEIVED ***")
+                    print(f"[DEBUG] URL: {url}")
+                    print(f"[DEBUG] Status: {response.status_code}")
+                    print(f"[DEBUG] Content-Type: {response.headers.get('Content-Type')}")
+                    print(f"[DEBUG] Content-Length: {response.headers.get('Content-Length')}")
+                
                 return response.text
             except requests.RequestException as e:
                 print(f"[ERROR] Attempt {attempt + 1} failed for {url}: {e}")
+                
+                # BUGFIX: Enhanced error logging for target post
+                if '/2026/03/02/' in url:
+                    print(f"[ERROR] *** FAILED TO FETCH TARGET POST (March 2, 2026) ***")
+                    print(f"[ERROR] Exception type: {type(e).__name__}")
+                    print(f"[ERROR] Exception details: {str(e)}")
+                
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                 else:
                     print(f"[ERROR] Failed to fetch {url} after {retries} attempts")
                     return None
+    
+    def check_staging_table(self, post_url):
+        """
+        BUGFIX: Check if post exists in DynamoDB staging table
+        Returns post data if found, None otherwise
+        """
+        try:
+            # Generate post_id from URL (same logic as save_post)
+            post_id = post_url.split('/')[-2] if post_url.endswith('/') else post_url.split('/')[-1]
+            
+            print(f"[DEBUG] Checking staging table for post_id: {post_id}")
+            print(f"[DEBUG] Table name: {self.table_name}")
+            
+            response = self.table.get_item(Key={'post_id': post_id})
+            
+            if 'Item' in response:
+                item = response['Item']
+                print(f"[DEBUG] *** POST FOUND IN STAGING TABLE ***")
+                print(f"[DEBUG] post_id: {item.get('post_id')}")
+                print(f"[DEBUG] title: {item.get('title')}")
+                print(f"[DEBUG] published_date: {item.get('published_date')}")
+                print(f"[DEBUG] url: {item.get('url')}")
+                print(f"[DEBUG] author: {item.get('author')}")
+                print(f"[DEBUG] tags: {item.get('tags')}")
+                return item
+            else:
+                print(f"[DEBUG] Post not found in staging table: {post_id}")
+                return None
+                
+        except Exception as e:
+            print(f"[ERROR] Error checking staging table: {e}")
+            return None
+    
+    def log_filtering_decision(self, url, reason, passed=False):
+        """
+        BUGFIX: Log filtering decisions for debugging
+        """
+        decision = {
+            'url': url,
+            'reason': reason,
+            'passed': passed,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+        self.filtering_log.append(decision)
+        
+        status = "PASSED" if passed else "FILTERED OUT"
+        print(f"[FILTER] {status}: {url}")
+        print(f"[FILTER] Reason: {reason}")
+        
+        # BUGFIX: Enhanced logging for target post
+        if '/2026/03/02/' in url:
+            print(f"[FILTER] *** FILTERING DECISION FOR MARCH 2, 2026 TARGET POST ***")
+            print(f"[FILTER] Status: {status}")
+            print(f"[FILTER] Reason: {reason}")
     
     def extract_post_links(self, html):
         """
@@ -91,6 +165,7 @@ class AWSBlogCrawler:
         soup = BeautifulSoup(html, 'html.parser')
         links = []
         
+        print(f"[DEBUG] ===== STARTING POST LINK EXTRACTION =====")
         print(f"[DEBUG] Starting post link extraction from listing page")
         print(f"[DEBUG] HTML content length: {len(html)} bytes")
         print(f"[DEBUG] Base URL: {self.base_url}")
@@ -99,30 +174,48 @@ class AWSBlogCrawler:
         if os.environ.get('ENVIRONMENT') == 'staging':
             print(f"[DEBUG] *** STAGING ENVIRONMENT DETECTED ***")
             print(f"[DEBUG] Ensuring crawler uses staging.awseuccontent.com domain")
+            print(f"[DEBUG] Expected base URL: https://staging.awseuccontent.com/blogs/desktop-and-application-streaming")
+        
+        # BUGFIX: Verify HTML contains blog content
+        blog_indicators = [
+            'desktop-and-application-streaming',
+            'blog-post',
+            'article',
+            'entry-title'
+        ]
+        html_lower = html.lower()
+        found_indicators = [ind for ind in blog_indicators if ind in html_lower]
+        print(f"[DEBUG] Found blog indicators in HTML: {found_indicators}")
+        if not found_indicators:
+            print(f"[WARNING] HTML may not contain expected blog structure")
         
         # Method 1: Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
-        print(f"[DEBUG] Found {len(articles)} article containers")
+        print(f"[DEBUG] Method 1: Found {len(articles)} article containers")
         
-        for article in articles:
+        for idx, article in enumerate(articles):
             link_tag = article.find('a', href=True)
             if link_tag:
                 href = link_tag['href']
                 full_url = urljoin(self.base_url, href)
                 # Updated to handle both production and staging domains
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
-                    links.append(full_url)
-                    print(f"[DEBUG] Found post from article container: {full_url}")
-                    # BUGFIX: Log specific target post if found
-                    if '/2026/03/02/' in full_url or 'workspaces' in full_url.lower() and 'g6' in full_url.lower():
-                        print(f"[DEBUG] !!! TARGET POST CANDIDATE FROM ARTICLE: {full_url} !!!")
+                    if full_url not in links:
+                        links.append(full_url)
+                        print(f"[DEBUG] Method 1: Found post from article container #{idx + 1}: {full_url}")
+                        # BUGFIX: Log specific target post if found
+                        if '/2026/03/02/' in full_url:
+                            print(f"[DEBUG] !!! METHOD 1: MARCH 2, 2026 TARGET POST FOUND: {full_url} !!!")
+                            self.target_post_found = True
+                            self.target_post_url = full_url
+                        elif 'workspaces' in full_url.lower() and 'g6' in full_url.lower():
+                            print(f"[DEBUG] !!! METHOD 1: WorkSpaces G6 POST CANDIDATE: {full_url} !!!")
         
         # Method 2: Alternative extraction for links matching blog pattern
-        if not links:
-            print(f"[DEBUG] No links found in articles, trying alternative extraction")
-        
+        print(f"[DEBUG] Method 2: Extracting from all <a> tags")
         all_links = soup.find_all('a', href=True)
-        print(f"[DEBUG] Total <a> tags with href found: {len(all_links)}")
+        print(f"[DEBUG] Method 2: Total <a> tags with href found: {len(all_links)}")
+        
         for link in all_links:
             href = link['href']
             if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
@@ -133,38 +226,53 @@ class AWSBlogCrawler:
                 if len(segments) >= 3 and full_url not in links:
                     has_date = re.search(r'/\d{4}/\d{2}/', full_url)
                     has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
+                    
+                    # BUGFIX: Log filtering decision
                     if has_date or has_slug:
                         links.append(full_url)
-                        print(f"[DEBUG] Added post via path validation: {full_url}")
+                        self.log_filtering_decision(full_url, "Passed path validation (3+ segments, date or slug pattern)", passed=True)
+                        
                         # BUGFIX: Log specific target post if found
                         if '/2026/03/02/' in full_url:
-                            print(f"[DEBUG] !!! TARGET POST CANDIDATE VIA PATH VALIDATION: {full_url} !!!")
+                            print(f"[DEBUG] !!! METHOD 2: MARCH 2, 2026 TARGET POST FOUND VIA PATH VALIDATION: {full_url} !!!")
+                            self.target_post_found = True
+                            self.target_post_url = full_url
+                    else:
+                        self.log_filtering_decision(full_url, "Failed path validation (no date pattern or slug)", passed=False)
         
         # Method 3: BUGFIX - Enhanced extraction for date-patterned URLs (including 2026+)
-        print(f"[DEBUG] Scanning for posts with date patterns in URL (including 2026+)")
+        print(f"[DEBUG] Method 3: Scanning for posts with date patterns in URL (including 2026+)")
         all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
-        print(f"[DEBUG] Found {len(all_date_links)} links with date patterns")
+        print(f"[DEBUG] Method 3: Found {len(all_date_links)} links with date patterns")
+        
         for link in all_date_links:
             href = link.get('href')
             if href:
                 full_url = urljoin(self.base_url, href)
                 if full_url not in links and full_url != self.base_url:
                     # Ensure it's not a date archive page
-                    if not re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) and not re.search(r'/\d{4}/\d{2}/?$', full_url):
+                    is_archive = re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) or re.search(r'/\d{4}/\d{2}/?$', full_url)
+                    
+                    if not is_archive:
                         links.append(full_url)
+                        self.log_filtering_decision(full_url, "Passed date pattern validation (not archive page)", passed=True)
+                        
                         # BUGFIX: Log 2026+ posts explicitly
                         if '/2026/' in full_url:
-                            print(f"[DEBUG] !!! 2026 POST FOUND VIA DATE PATTERN !!! : {full_url}")
+                            print(f"[DEBUG] !!! METHOD 3: 2026 POST FOUND VIA DATE PATTERN !!! : {full_url}")
                             # BUGFIX: Check if this is the specific March 2, 2026 post
                             if '/2026/03/02/' in full_url:
-                                print(f"[DEBUG] !!! MARCH 2, 2026 TARGET POST FOUND !!! : {full_url}")
-                        else:
-                            print(f"[DEBUG] Added post via date pattern: {full_url}")
+                                print(f"[DEBUG] !!! METHOD 3: MARCH 2, 2026 TARGET POST FOUND !!! : {full_url}")
+                                self.target_post_found = True
+                                self.target_post_url = full_url
+                    else:
+                        self.log_filtering_decision(full_url, "Filtered out as archive page", passed=False)
         
         # Method 4: BUGFIX - Comprehensive scan for all blog links
-        print(f"[DEBUG] Running comprehensive scan for all blog links")
+        print(f"[DEBUG] Method 4: Running comprehensive scan for all blog links")
         all_blog_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/'))
-        print(f"[DEBUG] Found {len(all_blog_links)} total links with blog path")
+        print(f"[DEBUG] Method 4: Found {len(all_blog_links)} total links with blog path")
+        
         for link in all_blog_links:
             href = link.get('href')
             if href:
@@ -179,98 +287,10 @@ class AWSBlogCrawler:
                     path_after_blog = full_url.split('/blogs/desktop-and-application-streaming/')[-1].strip('/')
                     if path_after_blog and len(path_after_blog) > 0:
                         links.append(full_url)
+                        self.log_filtering_decision(full_url, "Passed comprehensive scan (not archive/category/base)", passed=True)
+                        
                         # BUGFIX: Log 2026+ posts explicitly
                         if '/2026/' in full_url:
-                            print(f"[DEBUG] !!! 2026 POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
+                            print(f"[DEBUG] !!! METHOD 4: 2026 POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
                             if '/2026/03/02/' in full_url:
-                                print(f"[DEBUG] !!! MARCH 2, 2026 TARGET POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
-                        else:
-                            print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
-        
-        # Method 5: BUGFIX - Special handling for specific target post (WorkSpaces Graphics G6)
-        target_post_patterns = [
-            re.compile(r'amazon.*workspaces.*graphics.*g6', re.IGNORECASE),
-            re.compile(r'workspaces.*g6.*bundles', re.IGNORECASE),
-            re.compile(r'graphics.*g6.*gr6.*g6f', re.IGNORECASE),
-            re.compile(r'workspaces.*graphics.*bundle', re.IGNORECASE),
-        ]
-        print(f"[DEBUG] Checking for target post patterns: 'Amazon WorkSpaces Graphics G6'")
-        for link in soup.find_all('a', href=True):
-            link_text = link.get_text(strip=True)
-            href = link.get('href')
-            title_attr = link.get('title', '')
-            
-            for pattern in target_post_patterns:
-                if pattern.search(link_text) or pattern.search(href) or pattern.search(title_attr):
-                    full_url = urljoin(self.base_url, href)
-                    if full_url not in links and '/blogs/desktop-and-application-streaming/' in full_url:
-                        links.append(full_url)
-                        print(f"[DEBUG] !!! FOUND TARGET POST (WorkSpaces G6) !!! : {full_url}")
-                        print(f"[DEBUG] Link text: {link_text}")
-                        print(f"[DEBUG] Link href: {href}")
-                        print(f"[DEBUG] Link title: {title_attr}")
-                        break
-        
-        # Method 6: BUGFIX - Look in RSS/Sitemap-like structures if present
-        print(f"[DEBUG] Checking for RSS/Sitemap links")
-        rss_links = soup.find_all('link', {'type': 'application/rss+xml'})
-        for rss_link in rss_links:
-            rss_href = rss_link.get('href')
-            if rss_href:
-                print(f"[DEBUG] Found RSS feed: {rss_href}")
-        
-        # Method 7: BUGFIX - Direct URL construction for expected March 2, 2026 post
-        # In case the post is published but not appearing in listings
-        print(f"[DEBUG] Attempting direct URL construction for March 2, 2026 post")
-        potential_target_slugs = [
-            'amazon-workspaces-graphics-g6-gr6-g6f-bundles',
-            'workspaces-graphics-g6-bundles',
-            'announcing-amazon-workspaces-graphics-g6',
-            'new-workspaces-graphics-bundles',
-            'amazon-workspaces-g6-graphics-bundles',
-        ]
-        for slug in potential_target_slugs:
-            constructed_url = f"{self.base_url.rstrip('/')}/2026/03/02/{slug}/"
-            print(f"[DEBUG] Testing constructed URL: {constructed_url}")
-            # Don't add to links yet, but log for verification
-            # We'll verify existence during post parsing
-            print(f"[DEBUG] Will verify if {constructed_url} exists during scraping phase")
-        
-        # Debug logging for all environments
-        print(f"[DEBUG] ===== EXTRACTION SUMMARY =====")
-        print(f"[DEBUG] Total extracted {len(links)} unique post links from listing page")
-        print(f"[DEBUG] Environment: {os.environ.get('ENVIRONMENT', 'production')}")
-        print(f"[DEBUG] Base URL: {self.base_url}")
-        
-        # Enhanced logging for staging and debug
-        if os.environ.get('ENVIRONMENT') == 'staging' or os.environ.get('DEBUG_MODE') == 'true':
-            print(f"[DEBUG] FULL LINK LIST:")
-            for i, link in enumerate(links, 1):
-                print(f"[DEBUG]   {i}. {link}")
-                # Check if this is a 2026 post
-                if '/2026/' in link:
-                    print(f"[DEBUG]      ^^ 2026 POST DETECTED ^^")
-                # BUGFIX: Check for March 2, 2026 specifically
-                if '/2026/03/02/' in link:
-                    print(f"[DEBUG]      ^^ TARGET DATE: MARCH 2, 2026 ^^")
-        
-        # BUGFIX: Count and report 2026+ posts
-        future_posts = [link for link in links if '/2026/' in link]
-        march_2_posts = [link for link in links if '/2026/03/02/' in link]
-        
-        if future_posts:
-            print(f"[DEBUG] !!! FOUND {len(future_posts)} POST(S) FROM 2026+ !!!")
-            for fp in future_posts:
-                print(f"[DEBUG]   - {fp}")
-        
-        # BUGFIX: Specific logging for March 2, 2026 target post
-        if march_2_posts:
-            print(f"[DEBUG] *** FOUND {len(march_2_posts)} POST(S) DATED MARCH 2, 2026 ***")
-            for mp in march_2_posts:
-                print(f"[DEBUG]   *** TARGET DATE POST: {mp} ***")
-        else:
-            print(f"[WARNING] *** NO POSTS DATED MARCH 2, 2026 FOUND IN LISTING ***")
-            print(f"[WARNING] This may indicate:")
-            print(f"[WARNING]   1. Post is not yet published")
-            print(f"[WARNING]   2. Post exists but not in listings (pagination issue)")
-            print(f"[WARNING]   3. Date
+                                print(f"[DEBUG] !!!
