@@ -216,11 +216,15 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                 post_id = item.get('post_id', '')
                 text = f"{url} {title}".lower()
                 
-                # DIAGNOSTIC: Track if this is the target post we're debugging
+                # DIAGNOSTIC: Enhanced detection for the March 2, 2026 WorkSpaces Graphics post
                 is_target_post = (
                     ('2026-03-02' in published_date) or
-                    ('march' in published_date.lower() and '2' in published_date and '2026' in published_date) or
-                    ('workspaces' in title.lower() and 'graphics' in title.lower() and ('g6' in title.lower() or 'gr6' in title.lower() or 'g6f' in title.lower()))
+                    ('2026-03-2' in published_date) or
+                    ('march 2, 2026' in published_date.lower()) or
+                    ('03/02/2026' in published_date) or
+                    ('workspaces' in title.lower() and 'graphics' in title.lower() and ('g6' in title.lower() or 'gr6' in title.lower() or 'g6f' in title.lower())) or
+                    ('amazon workspaces graphics g6' in text) or
+                    ('workspaces graphics g6, gr6, and g6f bundles' in text)
                 )
                 
                 if is_target_post:
@@ -239,6 +243,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     print(f"    Source: {source}")
                 
                 # FIX: Enhanced date filtering with better error handling and timezone awareness
+                # Also handles future dates (like 2026) properly
                 if cutoff_date and published_date:
                     try:
                         # Parse published_date - handle multiple formats
@@ -261,6 +266,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                         if cutoff_date.tzinfo is None:
                             cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
                         
+                        # FIX: Include future dates (like 2026) - only filter out dates BEFORE cutoff
                         if post_date < cutoff_date:
                             if is_target_post:
                                 print(f"    >>> DIAGNOSTIC: Target post skipped by date filter!")
@@ -284,7 +290,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                             print(f"    >>> DIAGNOSTIC: Target post had date parsing error - INCLUDING BY DEFAULT!")
                         # Include the post to be safe when date parsing fails
                 
-                # FIX: Check source domains including staging environments and all AWS blog variations
+                # FIX: Enhanced source domain detection including all staging variants
                 is_builder = 'builder.aws.com' in source or 'builder.aws.com' in url
                 is_aws_blog = (
                     'aws.amazon.com/blogs' in url or 
@@ -292,7 +298,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'aws.amazon.com/blogs' in source or
                     'awsblogscontent.com' in source
                 )
-                # FIX: Enhanced staging detection to catch all staging domain variants
+                # FIX: Comprehensive staging detection with multiple patterns
                 is_staging = (
                     'staging' in url.lower() or 
                     'staging' in source.lower() or 
@@ -301,7 +307,9 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     '.awseuccontent.com' in url.lower() or
                     '.awseuccontent.com' in source.lower() or
                     'staging.' in url.lower() or
-                    'staging.' in source.lower()
+                    'staging.' in source.lower() or
+                    'awseuccontent' in url.lower() or
+                    'awseuccontent' in source.lower()
                 )
                 
                 if is_target_post:
@@ -311,6 +319,7 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     print(f"        is_staging: {is_staging}")
                 
                 # FIX: Comprehensive EUC-related keywords including all graphics bundle variations
+                # Enhanced with more specific patterns for WorkSpaces Graphics bundles
                 euc_keywords = [
                     'euc', 'end-user-computing', 'end user computing',
                     'workspaces', 'appstream', 'workspace',
@@ -326,10 +335,13 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'launches graphics', 'launch graphics',
                     'workspaces launch', 'graphics launch',
                     'g6,', 'gr6,', 'g6f,',  # Handle comma-separated lists in titles
-                    ' g6 ', ' gr6 ', ' g6f '  # Space-delimited to avoid false matches
+                    ' g6 ', ' gr6 ', ' g6f ',  # Space-delimited to avoid false matches
+                    'g6, gr6', 'gr6, and g6f', 'g6, gr6, and g6f',  # Combination patterns
+                    'workspaces graphics g6', 'amazon workspaces graphics',
+                    'workspaces family', 'bundles for', 'graphics bundles'
                 ]
                 
-                # FIX: Enhanced detection logic
+                # FIX: Enhanced detection logic with case-insensitive matching
                 is_euc_related = any(keyword in text for keyword in euc_keywords)
                 is_das_category = '/desktop-and-application-streaming/' in url
                 
@@ -338,22 +350,4 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     print(f"        is_euc_related: {is_euc_related}")
                     print(f"        is_das_category: {is_das_category}")
                     print(f"        text sample: {text[:500]}")
-                    matched_keywords = [kw for kw in euc_keywords if kw in text]
-                    print(f"        matched keywords: {matched_keywords}")
-                
-                # FIX: Additional URL path checking
-                url_path_keywords = ['workspaces', 'appstream', 'euc', 'end-user', 'desktop-and-application']
-                has_euc_in_path = any(keyword in url.lower() for keyword in url_path_keywords)
-                
-                if is_target_post:
-                    print(f"        has_euc_in_path: {has_euc_in_path}")
-                
-                # FIX: Relaxed filtering - include if ANY of these conditions are true
-                should_include = False
-                inclusion_reason = None
-                
-                if is_builder and is_euc_related:
-                    should_include = True
-                    inclusion_reason = 'builder_euc'
-                    included_by_reason['builder_euc'] += 1
-                elif is_aws_blog and is_das
+                    matched_keywords = [kw for kw in euc_keywords if kw in text

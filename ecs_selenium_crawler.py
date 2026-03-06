@@ -202,6 +202,7 @@ def verify_url_accessibility(driver, url):
 def extract_aws_blog_metadata(driver, url):
     """
     Extract comprehensive metadata from AWS blog post for debugging
+    Enhanced to better detect staging posts and various date formats
     
     Returns:
         dict: Complete metadata including publication date, author, categories, etc.
@@ -237,19 +238,20 @@ def extract_aws_blog_metadata(driver, url):
             if not name or not content:
                 continue
             
-            # Publication date - expanded to catch more date formats
-            if name in ['article:published_time', 'datePublished', 'date', 'publish-date', 'pubdate', 'publication-date']:
+            # Publication date - expanded to catch more date formats including staging
+            if name in ['article:published_time', 'datePublished', 'date', 'publish-date', 'pubdate', 
+                       'publication-date', 'publishdate', 'DC.date.issued', 'sailthru.date']:
                 metadata['publication_date'] = content
                 print(f"  DEBUG: Found publication date: {content} (from {name})")
                 log_to_cloudwatch(f"Publication date found: {content} (from {name})", 'DEBUG')
             
             # Modified date
-            if name in ['article:modified_time', 'dateModified', 'lastmod']:
+            if name in ['article:modified_time', 'dateModified', 'lastmod', 'last-modified']:
                 metadata['modified_date'] = content
                 print(f"  DEBUG: Found modified date: {content} (from {name})")
             
             # Author
-            if name in ['author', 'article:author']:
+            if name in ['author', 'article:author', 'DC.creator']:
                 metadata['author'] = content
                 print(f"  DEBUG: Found author: {content} (from {name})")
             
@@ -272,7 +274,7 @@ def extract_aws_blog_metadata(driver, url):
                 try:
                     json_data = json.loads(script.get_attribute('innerHTML'))
                     if isinstance(json_data, dict):
-                        if json_data.get('@type') in ['BlogPosting', 'Article', 'NewsArticle']:
+                        if json_data.get('@type') in ['BlogPosting', 'Article', 'NewsArticle', 'TechArticle']:
                             metadata['schema_metadata'] = json_data
                             if 'datePublished' in json_data and not metadata['publication_date']:
                                 metadata['publication_date'] = json_data['datePublished']
@@ -291,9 +293,10 @@ def extract_aws_blog_metadata(driver, url):
             print(f"  WARNING: Could not extract structured data: {e}")
         
         # Try to find publication date in page content if not found in meta
-        # Enhanced selectors to capture more date formats
+        # Enhanced selectors to capture staging and various AWS blog formats
         if not metadata['publication_date']:
             date_selectors = [
+                # Standard AWS blog selectors
                 "//time[@datetime]",
                 "//span[contains(@class, 'date')]",
                 "//div[contains(@class, 'date')]",
@@ -306,67 +309,52 @@ def extract_aws_blog_metadata(driver, url):
                 "//article//time",
                 # Staging-specific selectors
                 "//div[contains(@class, 'post-metadata')]//time",
-                "//div[contains(@class, 'article-metadata')]//span[contains(@class, 'date')]"
+                "//div[contains(@class, 'article-metadata')]//span[contains(@class, 'date')]",
+                "//div[contains(@class, 'post-meta')]//time",
+                "//div[contains(@class, 'byline')]//time",
+                # Additional generic selectors
+                "//header//time",
+                "//main//time",
+                "//span[contains(@class, 'post-published')]",
+                "//div[contains(@id, 'post-date')]",
+                "//div[contains(@id, 'publish-date')]",
+                # Try data attributes
+                "//*[@data-date]",
+                "//*[@data-published]",
+                "//*[@data-publish-date]"
             ]
             
             for selector in date_selectors:
                 try:
                     date_elem = driver.find_element(By.XPATH, selector)
+                    # Try datetime attribute first
                     datetime_attr = date_elem.get_attribute('datetime')
                     if datetime_attr:
                         metadata['publication_date'] = datetime_attr
                         print(f"  DEBUG: Found publication date in page: {datetime_attr} (selector: {selector})")
                         log_to_cloudwatch(f"Publication date found in page: {datetime_attr} (selector: {selector})", 'DEBUG')
                         break
-                    else:
-                        date_text = date_elem.text.strip()
-                        if date_text:
-                            metadata['publication_date'] = date_text
-                            print(f"  DEBUG: Found publication date text: {date_text} (selector: {selector})")
-                            log_to_cloudwatch(f"Publication date text found: {date_text} (selector: {selector})", 'DEBUG')
-                            break
+                    # Try data-date attribute
+                    data_date = date_elem.get_attribute('data-date') or date_elem.get_attribute('data-published')
+                    if data_date:
+                        metadata['publication_date'] = data_date
+                        print(f"  DEBUG: Found publication date in data attribute: {data_date} (selector: {selector})")
+                        log_to_cloudwatch(f"Publication date found in data attribute: {data_date} (selector: {selector})", 'DEBUG')
+                        break
+                    # Fallback to text content
+                    date_text = date_elem.text.strip()
+                    if date_text and len(date_text) > 5:  # Basic validation
+                        metadata['publication_date'] = date_text
+                        print(f"  DEBUG: Found publication date text: {date_text} (selector: {selector})")
+                        log_to_cloudwatch(f"Publication date text found: {date_text} (selector: {selector})", 'DEBUG')
+                        break
                 except NoSuchElementException:
                     continue
         
-        # Extract categories/tags
-        try:
-            category_elems = driver.find_elements(By.XPATH, "//a[contains(@href, '/category/') or contains(@href, '/tag/')]")
-            for elem in category_elems:
-                text = elem.text.strip()
-                if text:
-                    if '/category/' in elem.get_attribute('href'):
-                        metadata['categories'].append(text)
-                    else:
-                        metadata['tags'].append(text)
-        except Exception as e:
-            print(f"  WARNING: Could not extract categories/tags: {e}")
-        
-        # Log complete metadata
-        print(f"  DEBUG: Complete metadata extracted:")
-        print(f"    Title: {metadata['title']}")
-        print(f"    Publication Date: {metadata['publication_date']}")
-        print(f"    Modified Date: {metadata['modified_date']}")
-        print(f"    Author: {metadata['author']}")
-        print(f"    Categories: {metadata['categories']}")
-        print(f"    Tags: {metadata['tags']}")
-        
-        log_to_cloudwatch(f"Complete metadata: {json.dumps(metadata, default=str)}", 'INFO')
-        
-        return metadata
-        
-    except Exception as e:
-        print(f"  ERROR: Failed to extract metadata: {e}")
-        log_to_cloudwatch(f"Failed to extract metadata from {url}: {e}", 'ERROR')
-        return metadata
-
-
-def check_date_filtering(publication_date_str):
-    """
-    Debug date filtering logic to ensure posts are not filtered incorrectly
-    Enhanced to handle future dates and provide detailed debugging
-    
-    Returns:
-        dict: {'should_include': bool, 'parsed_date': datetime, 'reason': str}
-    """
-    print(f"  DEBUG: Checking date filtering for: {publication_date_str}")
-    log_to
+        # If still no date found, log page source excerpt for debugging
+        if not metadata['publication_date']:
+            print(f"  WARNING: No publication date found for {url}")
+            log_to_cloudwatch(f"No publication date found for {url}", 'WARNING')
+            try:
+                # Get page source snippet that might contain date
+                page_source =

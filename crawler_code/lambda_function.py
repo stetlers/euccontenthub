@@ -93,6 +93,12 @@ class AWSBlogCrawler:
         
         print(f"[DEBUG] Starting post link extraction from listing page")
         print(f"[DEBUG] HTML content length: {len(html)} bytes")
+        print(f"[DEBUG] Base URL: {self.base_url}")
+        
+        # BUGFIX: Check if we're accessing the correct URL pattern for staging
+        if os.environ.get('ENVIRONMENT') == 'staging':
+            print(f"[DEBUG] *** STAGING ENVIRONMENT DETECTED ***")
+            print(f"[DEBUG] Ensuring crawler uses staging.awseuccontent.com domain")
         
         # Method 1: Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
@@ -107,25 +113,32 @@ class AWSBlogCrawler:
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
                     links.append(full_url)
                     print(f"[DEBUG] Found post from article container: {full_url}")
+                    # BUGFIX: Log specific target post if found
+                    if '/2026/03/02/' in full_url or 'workspaces' in full_url.lower() and 'g6' in full_url.lower():
+                        print(f"[DEBUG] !!! TARGET POST CANDIDATE FROM ARTICLE: {full_url} !!!")
         
         # Method 2: Alternative extraction for links matching blog pattern
         if not links:
             print(f"[DEBUG] No links found in articles, trying alternative extraction")
-            all_links = soup.find_all('a', href=True)
-            print(f"[DEBUG] Total <a> tags with href found: {len(all_links)}")
-            for link in all_links:
-                href = link['href']
-                if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
-                    full_url = urljoin(self.base_url, href)
-                    path_check = full_url.replace(self.base_url, '').strip('/')
-                    segments = [s for s in path_check.split('/') if s]
-                    # BUGFIX: Reduced segment requirement from 5 to 3 for various URL structures
-                    if len(segments) >= 3 and full_url not in links:
-                        has_date = re.search(r'/\d{4}/\d{2}/', full_url)
-                        has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
-                        if has_date or has_slug:
-                            links.append(full_url)
-                            print(f"[DEBUG] Added post via path validation: {full_url}")
+        
+        all_links = soup.find_all('a', href=True)
+        print(f"[DEBUG] Total <a> tags with href found: {len(all_links)}")
+        for link in all_links:
+            href = link['href']
+            if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
+                full_url = urljoin(self.base_url, href)
+                path_check = full_url.replace(self.base_url, '').strip('/')
+                segments = [s for s in path_check.split('/') if s]
+                # BUGFIX: Reduced segment requirement from 5 to 3 for various URL structures
+                if len(segments) >= 3 and full_url not in links:
+                    has_date = re.search(r'/\d{4}/\d{2}/', full_url)
+                    has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
+                    if has_date or has_slug:
+                        links.append(full_url)
+                        print(f"[DEBUG] Added post via path validation: {full_url}")
+                        # BUGFIX: Log specific target post if found
+                        if '/2026/03/02/' in full_url:
+                            print(f"[DEBUG] !!! TARGET POST CANDIDATE VIA PATH VALIDATION: {full_url} !!!")
         
         # Method 3: BUGFIX - Enhanced extraction for date-patterned URLs (including 2026+)
         print(f"[DEBUG] Scanning for posts with date patterns in URL (including 2026+)")
@@ -142,6 +155,9 @@ class AWSBlogCrawler:
                         # BUGFIX: Log 2026+ posts explicitly
                         if '/2026/' in full_url:
                             print(f"[DEBUG] !!! 2026 POST FOUND VIA DATE PATTERN !!! : {full_url}")
+                            # BUGFIX: Check if this is the specific March 2, 2026 post
+                            if '/2026/03/02/' in full_url:
+                                print(f"[DEBUG] !!! MARCH 2, 2026 TARGET POST FOUND !!! : {full_url}")
                         else:
                             print(f"[DEBUG] Added post via date pattern: {full_url}")
         
@@ -166,6 +182,8 @@ class AWSBlogCrawler:
                         # BUGFIX: Log 2026+ posts explicitly
                         if '/2026/' in full_url:
                             print(f"[DEBUG] !!! 2026 POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
+                            if '/2026/03/02/' in full_url:
+                                print(f"[DEBUG] !!! MARCH 2, 2026 TARGET POST FOUND VIA COMPREHENSIVE SCAN !!! : {full_url}")
                         else:
                             print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
         
@@ -174,6 +192,7 @@ class AWSBlogCrawler:
             re.compile(r'amazon.*workspaces.*graphics.*g6', re.IGNORECASE),
             re.compile(r'workspaces.*g6.*bundles', re.IGNORECASE),
             re.compile(r'graphics.*g6.*gr6.*g6f', re.IGNORECASE),
+            re.compile(r'workspaces.*graphics.*bundle', re.IGNORECASE),
         ]
         print(f"[DEBUG] Checking for target post patterns: 'Amazon WorkSpaces Graphics G6'")
         for link in soup.find_all('a', href=True):
@@ -200,6 +219,23 @@ class AWSBlogCrawler:
             if rss_href:
                 print(f"[DEBUG] Found RSS feed: {rss_href}")
         
+        # Method 7: BUGFIX - Direct URL construction for expected March 2, 2026 post
+        # In case the post is published but not appearing in listings
+        print(f"[DEBUG] Attempting direct URL construction for March 2, 2026 post")
+        potential_target_slugs = [
+            'amazon-workspaces-graphics-g6-gr6-g6f-bundles',
+            'workspaces-graphics-g6-bundles',
+            'announcing-amazon-workspaces-graphics-g6',
+            'new-workspaces-graphics-bundles',
+            'amazon-workspaces-g6-graphics-bundles',
+        ]
+        for slug in potential_target_slugs:
+            constructed_url = f"{self.base_url.rstrip('/')}/2026/03/02/{slug}/"
+            print(f"[DEBUG] Testing constructed URL: {constructed_url}")
+            # Don't add to links yet, but log for verification
+            # We'll verify existence during post parsing
+            print(f"[DEBUG] Will verify if {constructed_url} exists during scraping phase")
+        
         # Debug logging for all environments
         print(f"[DEBUG] ===== EXTRACTION SUMMARY =====")
         print(f"[DEBUG] Total extracted {len(links)} unique post links from listing page")
@@ -214,75 +250,27 @@ class AWSBlogCrawler:
                 # Check if this is a 2026 post
                 if '/2026/' in link:
                     print(f"[DEBUG]      ^^ 2026 POST DETECTED ^^")
+                # BUGFIX: Check for March 2, 2026 specifically
+                if '/2026/03/02/' in link:
+                    print(f"[DEBUG]      ^^ TARGET DATE: MARCH 2, 2026 ^^")
         
         # BUGFIX: Count and report 2026+ posts
         future_posts = [link for link in links if '/2026/' in link]
+        march_2_posts = [link for link in links if '/2026/03/02/' in link]
+        
         if future_posts:
             print(f"[DEBUG] !!! FOUND {len(future_posts)} POST(S) FROM 2026+ !!!")
             for fp in future_posts:
                 print(f"[DEBUG]   - {fp}")
         
-        return list(set(links))
-    
-    def find_next_page(self, html):
-        """Find the next page link for pagination"""
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Look for "Older posts" link specifically
-        next_link = soup.find('a', string=re.compile(r'.*Older posts.*', re.IGNORECASE))
-        if next_link and next_link.get('href'):
-            href = next_link['href']
-            if '/blogs/desktop-and-application-streaming/' in href:
-                full_url = urljoin(self.base_url, href)
-                print(f"[DEBUG] Found next page via 'Older posts' link: {full_url}")
-                return full_url
-        
-        # Alternative: look for page/N/ pattern in links
-        all_links = soup.find_all('a', href=re.compile(r'/page/\d+/'))
-        if all_links:
-            for link in all_links:
-                href = link.get('href')
-                if '/blogs/desktop-and-application-streaming/' in href:
-                    full_url = urljoin(self.base_url, href)
-                    print(f"[DEBUG] Found next page via page number: {full_url}")
-                    return full_url
-        
-        # Additional pattern: look for pagination navigation
-        pagination = soup.find('nav', class_=re.compile(r'pagination|page-nav', re.IGNORECASE))
-        if pagination:
-            next_links = pagination.find_all('a', string=re.compile(r'next|older|→|»', re.IGNORECASE))
-            for link in next_links:
-                href = link.get('href')
-                if href and '/blogs/desktop-and-application-streaming/' in href:
-                    full_url = urljoin(self.base_url, href)
-                    print(f"[DEBUG] Found next page via pagination nav: {full_url}")
-                    return full_url
-        
-        print(f"[DEBUG] No next page found - reached end of pagination")
-        return None
-
-    def parse_date_string(self, date_str):
-        """
-        Parse various date string formats into ISO 8601 format.
-        Returns None if parsing fails.
-        BUGFIX: Enhanced to handle more date formats and future dates (2026+)
-        """
-        if not date_str:
-            print(f"[DEBUG] parse_date_string: Empty date string provided")
-            return None
-        
-        # List of date format patterns to try
-        date_formats = [
-            '%Y-%m-%dT%H:%M:%SZ',           # ISO 8601 with Z
-            '%Y-%m-%dT%H:%M:%S%z',          # ISO 8601 with timezone
-            '%Y-%m-%dT%H:%M:%S.%fZ',        # ISO 8601 with milliseconds
-            '%Y-%m-%dT%H:%M:%S.%f%z',       # ISO 8601 with milliseconds and timezone
-            '%Y-%m-%d',                      # Simple date
-            '%B %d, %Y',                     # March 2, 2026
-            '%b %d, %Y',                     # Mar 2, 2026
-            '%d %B %Y',                      # 2 March 2026
-            '%d %b %Y',                      # 2 Mar 2026
-            '%m/%d/%Y',                      # 03/02/2026
-            '%Y/%m/%d',                      # 2026/03/02
-            '%Y-%m-%d %H:%M:%S',            # 2026-03-02 10:30:00
-            '%a, %d %b %Y %H:%M:%S %z',     # Mon, 02 Mar 2026 10:30:00 +
+        # BUGFIX: Specific logging for March 2, 2026 target post
+        if march_2_posts:
+            print(f"[DEBUG] *** FOUND {len(march_2_posts)} POST(S) DATED MARCH 2, 2026 ***")
+            for mp in march_2_posts:
+                print(f"[DEBUG]   *** TARGET DATE POST: {mp} ***")
+        else:
+            print(f"[WARNING] *** NO POSTS DATED MARCH 2, 2026 FOUND IN LISTING ***")
+            print(f"[WARNING] This may indicate:")
+            print(f"[WARNING]   1. Post is not yet published")
+            print(f"[WARNING]   2. Post exists but not in listings (pagination issue)")
+            print(f"[WARNING]   3. Date
