@@ -71,6 +71,9 @@ class AWSBlogCrawler:
         """
         Extract all blog post links from RSS feed.
         This is more reliable than scraping HTML as RSS feeds are structured.
+        
+        FIX: Enhanced RSS parsing to capture all posts including recent ones.
+        Added additional namespace handling and improved link extraction.
         """
         rss_url = f"{self.base_url}feed/"
         print(f"Fetching RSS feed: {rss_url}")
@@ -79,10 +82,14 @@ class AWSBlogCrawler:
             response = self.session.get(rss_url, timeout=30)
             response.raise_for_status()
             
+            print(f"RSS feed response status: {response.status_code}")
+            print(f"RSS feed content length: {len(response.text)}")
+            
             # Parse RSS/Atom feed
             root = ET.fromstring(response.text)
             
             links = []
+            post_dates = {}  # Track dates for debugging
             
             # Try RSS 2.0 format first
             for item in root.findall('.//item'):
@@ -91,6 +98,10 @@ class AWSBlogCrawler:
                     url = link_elem.text.strip()
                     if '/blogs/desktop-and-application-streaming/' in url:
                         links.append(url)
+                        # Extract date for debugging
+                        pub_date = item.find('pubDate')
+                        if pub_date is not None and pub_date.text:
+                            post_dates[url] = pub_date.text
             
             # Try Atom format if no RSS items found
             if not links:
@@ -101,21 +112,53 @@ class AWSBlogCrawler:
                         url = link_elem.get('href', '').strip()
                         if url and '/blogs/desktop-and-application-streaming/' in url:
                             links.append(url)
+                            # Extract date for debugging
+                            pub_date = entry.find('atom:published', namespace)
+                            if pub_date is not None and pub_date.text:
+                                post_dates[url] = pub_date.text
+            
+            # FIX: Additional fallback - check all namespaces
+            if not links:
+                print("Trying generic XML parsing without namespace...")
+                for entry in root.iter():
+                    if entry.tag.endswith('entry') or entry.tag.endswith('item'):
+                        for child in entry:
+                            if child.tag.endswith('link'):
+                                url = child.text or child.get('href', '')
+                                if url and '/blogs/desktop-and-application-streaming/' in url:
+                                    links.append(url.strip())
             
             print(f"Found {len(links)} posts in RSS feed")
+            
+            # FIX: Debug output for date analysis
+            if post_dates:
+                print(f"Post dates from RSS feed:")
+                for url, date in sorted(post_dates.items(), key=lambda x: x[1], reverse=True)[:5]:
+                    print(f"  {date}: {url}")
+            
             return list(set(links))
             
         except Exception as e:
             print(f"Error fetching RSS feed: {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return []
     
     def extract_post_links(self, html):
-        """Extract all blog post links from the listing page"""
+        """
+        Extract all blog post links from the listing page
+        
+        FIX: Enhanced HTML parsing with multiple detection strategies
+        to ensure new posts are captured even if RSS feed is delayed.
+        """
         soup = BeautifulSoup(html, 'html.parser')
         links = []
         
-        # Find all article links
-        articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
+        # FIX: Strategy 1 - Find all article links with enhanced selectors
+        articles = (
+            soup.find_all('article') or 
+            soup.find_all('div', class_=re.compile(r'post|article|entry|blog-post', re.IGNORECASE))
+        )
         
         for article in articles:
             link_tag = article.find('a', href=True)
@@ -124,17 +167,35 @@ class AWSBlogCrawler:
                 full_url = urljoin(self.base_url, href)
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
                     links.append(full_url)
+                    # FIX: Debug logging for new post detection
+                    date_elem = article.find('time')
+                    if date_elem:
+                        print(f"  Found post: {full_url} (date: {date_elem.get('datetime', date_elem.get_text())})")
         
-        # Alternative: find all links that match the blog pattern
+        # FIX: Strategy 2 - Find all links that match the blog pattern with stricter validation
         if not links:
             all_links = soup.find_all('a', href=True)
             for link in all_links:
                 href = link['href']
                 if '/blogs/desktop-and-application-streaming/' in href and href != self.base_url:
                     full_url = urljoin(self.base_url, href)
+                    # FIX: Ensure it's a real post URL (has enough path segments)
                     if full_url not in links and full_url.count('/') > 5:
-                        links.append(full_url)
+                        # Additional validation: must end with / or alphanumeric
+                        if full_url.endswith('/') or re.search(r'[a-zA-Z0-9]$', full_url):
+                            links.append(full_url)
         
+        # FIX: Strategy 3 - Look for h2/h3 titles that link to posts
+        title_links = soup.find_all(['h2', 'h3'], class_=re.compile(r'title|heading', re.IGNORECASE))
+        for title in title_links:
+            link_tag = title.find('a', href=True)
+            if link_tag:
+                href = link_tag['href']
+                full_url = urljoin(self.base_url, href)
+                if '/blogs/desktop-and-application-streaming/' in full_url and full_url not in links:
+                    links.append(full_url)
+        
+        print(f"Extracted {len(links)} post links from HTML")
         return list(set(links))
     
     def find_next_page(self, html):
@@ -159,7 +220,12 @@ class AWSBlogCrawler:
         return None
 
     def extract_post_metadata(self, url, html):
-        """Extract metadata from a blog post"""
+        """
+        Extract metadata from a blog post
+        
+        FIX: Enhanced date extraction with multiple fallback methods
+        to ensure published dates are always captured correctly.
+        """
         soup = BeautifulSoup(html, 'html.parser')
         
         metadata = {
@@ -217,161 +283,59 @@ class AWSBlogCrawler:
                         if name_match:
                             metadata['authors'] = name_match.group(1).strip()
         
-        # Extract published date
+        # FIX: Enhanced published date extraction with multiple strategies
+        # Strategy 1: Look for time tag with datetime attribute
         date_tag = soup.find('time', {'datetime': True})
         if date_tag:
             metadata['date_published'] = date_tag.get('datetime', '')
-        else:
-            date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
-                        soup.find('meta', {'name': 'date'}) or
-                        soup.find('meta', {'name': 'publish_date'}))
+            print(f"  Found date via <time> tag: {metadata['date_published']}")
+        
+        # FIX: Strategy 2: Check multiple meta tag variations
+        if not metadata['date_published']:
+            date_meta = (
+                soup.find('meta', {'property': 'article:published_time'}) or
+                soup.find('meta', {'name': 'date'}) or
+                soup.find('meta', {'name': 'publish_date'}) or
+                soup.find('meta', {'name': 'publication_date'}) or
+                soup.find('meta', {'property': 'og:published_time'})
+            )
             if date_meta:
                 metadata['date_published'] = date_meta.get('content', '')
+                print(f"  Found date via meta tag: {metadata['date_published']}")
         
-        # Extract updated date
-        updated_tag = soup.find('time', {'class': re.compile(r'updated|modified', re.IGNORECASE)})
-        if updated_tag:
-            metadata['date_updated'] = updated_tag.get('datetime', updated_tag.get_text(strip=True))
-        else:
-            updated_meta = soup.find('meta', {'property': 'article:modified_time'})
-            if updated_meta:
-                metadata['date_updated'] = updated_meta.get('content', '')
-        
-        # Extract tags
-        tags_section = soup.find('div', class_=re.compile(r'tags|categories', re.IGNORECASE))
-        if tags_section:
-            tag_links = tags_section.find_all('a')
-            metadata['tags'] = ', '.join([tag.get_text(strip=True) for tag in tag_links])
-        else:
-            tag_meta = soup.find('meta', {'property': 'article:tag'}) or soup.find('meta', {'name': 'keywords'})
-            if tag_meta:
-                metadata['tags'] = tag_meta.get('content', '')
-        
-        # Extract post content (first 3000 characters for summary generation)
-        # Look for main content area
-        content_area = (
-            soup.find('article') or 
-            soup.find('div', class_=re.compile(r'content|post-body|entry-content', re.IGNORECASE)) or
-            soup.find('main')
-        )
-        
-        if content_area:
-            # Remove script, style, and navigation elements
-            for element in content_area.find_all(['script', 'style', 'nav', 'header', 'footer']):
-                element.decompose()
-            
-            # Get text content
-            content_text = content_area.get_text(separator=' ', strip=True)
-            # Limit to first 3000 characters
-            metadata['content'] = content_text[:3000]
-        
-        # Set default author if none found
-        if not metadata['authors'] or metadata['authors'].strip() == '':
-            metadata['authors'] = 'Multiple Authors'
-        
-        return metadata
-    
-    def save_to_dynamodb(self, metadata):
-        """Save a single post to DynamoDB"""
-        try:
-            # Create a unique ID from the URL
-            post_id = metadata['url'].split('/')[-2] if metadata['url'].endswith('/') else metadata['url'].split('/')[-1]
-            
-            # Check if item exists and if content changed
-            content_changed = False
-            try:
-                response = self.table.get_item(Key={'post_id': post_id})
-                if 'Item' in response:
-                    self.posts_updated += 1
-                    existing_item = response['Item']
-                    
-                    # Check if content changed
-                    old_content = existing_item.get('content', '')
-                    new_content = metadata['content']
-                    if old_content != new_content:
-                        content_changed = True
-                        print(f"  Content changed - will regenerate summary")
-                else:
-                    self.posts_created += 1
-                    content_changed = True  # New post needs summary
-            except:
-                self.posts_created += 1
-                content_changed = True  # New post needs summary
-            
-            # Build update expression based on whether content changed
-            if content_changed:
-                # Clear summary AND label if content changed so they get regenerated
-                update_expression = '''
-                    SET #url = :url,
-                        title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
-                        date_updated = :date_updated,
-                        tags = :tags,
-                        content = :content,
-                        last_crawled = :last_crawled,
-                        summary = :empty,
-                        label = :empty,
-                        label_confidence = :zero,
-                        label_generated = :empty,
-                        #source = :source
-                '''
-                expression_values = {
-                    ':url': metadata['url'],
-                    ':title': metadata['title'],
-                    ':authors': metadata['authors'],
-                    ':date_published': metadata['date_published'],
-                    ':date_updated': metadata['date_updated'],
-                    ':tags': metadata['tags'],
-                    ':content': metadata['content'],
-                    ':last_crawled': datetime.utcnow().isoformat(),
-                    ':empty': '',
-                    ':zero': 0,
-                    ':source': 'aws-blog'
-                }
-                self.posts_needing_summaries += 1
-                self.posts_needing_classification += 1
-            else:
-                # Keep existing summary if content unchanged
-                update_expression = '''
-                    SET #url = :url,
-                        title = :title,
-                        authors = :authors,
-                        date_published = :date_published,
-                        date_updated = :date_updated,
-                        tags = :tags,
-                        content = :content,
-                        last_crawled = :last_crawled,
-                        #source = :source
-                '''
-                expression_values = {
-                    ':url': metadata['url'],
-                    ':title': metadata['title'],
-                    ':authors': metadata['authors'],
-                    ':date_published': metadata['date_published'],
-                    ':date_updated': metadata['date_updated'],
-                    ':tags': metadata['tags'],
-                    ':content': metadata['content'],
-                    ':last_crawled': datetime.utcnow().isoformat(),
-                    ':source': 'aws-blog'
-                }
-            
-            # Use update_item to preserve voting fields
-            self.table.update_item(
-                Key={'post_id': post_id},
-                UpdateExpression=update_expression,
-                ExpressionAttributeNames={
-                    '#url': 'url',  # 'url' is a reserved word in DynamoDB
-                    '#source': 'source'
-                },
-                ExpressionAttributeValues=expression_values
+        # FIX: Strategy 3: Parse text for "on [Date]" pattern (common in AWS blogs)
+        if not metadata['date_published']:
+            # Match patterns like "on March 2, 2026" or "on 2 Mar 2026"
+            date_pattern = re.search(
+                r'\bon\s+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Z][a-z]+\s+\d{4})',
+                page_text
             )
-            
-            self.posts_processed += 1
-            return True
-            
-        except Exception as e:
-            print(f"Error saving to DynamoDB: {e}")
-            return False
-    
-    def
+            if date_pattern:
+                date_str = date_pattern.group(1)
+                # Try to parse and convert to ISO format
+                try:
+                    from dateutil import parser
+                    parsed_date = parser.parse(date_str)
+                    metadata['date_published'] = parsed_date.isoformat()
+                    print(f"  Found date via text parsing: {date_str} -> {metadata['date_published']}")
+                except:
+                    # Keep the original string if parsing fails
+                    metadata['date_published'] = date_str
+                    print(f"  Found date via text parsing (unparsed): {date_str}")
+        
+        # FIX: Strategy 4: Look in structured data (JSON-LD)
+        if not metadata['date_published']:
+            json_ld_scripts = soup.find_all('script', type='application/ld+json')
+            for script in json_ld_scripts:
+                try:
+                    data = json.loads(script.string)
+                    if isinstance(data, dict):
+                        if 'datePublished' in data:
+                            metadata['date_published'] = data['datePublished']
+                            print(f"  Found date via JSON-LD: {metadata['date_published']}")
+                            break
+                        elif '@graph' in data:
+                            for item in data['@graph']:
+                                if 'datePublished' in item:
+                                    metadata['date_published'] = item['datePublished']
+                                    print(f"  Found date via JSON-LD @graph: {metadata['date_published']}")

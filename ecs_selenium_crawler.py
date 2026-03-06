@@ -179,21 +179,36 @@ def extract_page_content(driver, url, max_retries=3):
             print(f"  Attempt {attempt + 1}/{max_retries}: Loading {url}")
             driver.get(url)
             
-            # Wait for page to load
-            WebDriverWait(driver, 15).until(
+            # Wait for page to load - increased timeout for dynamic content
+            WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
             # Give JavaScript time to render - increased for dynamic content
-            time.sleep(3)
+            time.sleep(4)
+            
+            # Additional wait for content to be loaded (check for specific elements)
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: len(d.find_elements(By.TAG_NAME, "p")) > 0 or 
+                             len(d.find_elements(By.TAG_NAME, "article")) > 0
+                )
+                print(f"  Content elements detected on page")
+            except TimeoutException:
+                print(f"  Warning: Content elements not detected within timeout, proceeding anyway")
             
             # Debug: Check if page loaded correctly
             page_title = driver.title
             print(f"  Page title: {page_title}")
+            current_url = driver.current_url
+            print(f"  Current URL: {current_url}")
             
             # Check for common error indicators
             if "404" in page_title.lower() or "not found" in page_title.lower():
                 print(f"  Warning: Page appears to be a 404 error")
+                # Check if URL was redirected
+                if current_url != url:
+                    print(f"  Warning: URL was redirected from {url} to {current_url}")
             
             # Extract author name
             authors = "AWS Builder Community"  # Default
@@ -211,7 +226,10 @@ def extract_page_content(driver, url, max_retries=3):
                     "//div[contains(@class, 'author')]",
                     "//a[contains(@class, 'author')]",
                     "//span[contains(@data-testid, 'author')]",
-                    "//div[contains(@class, 'post-author')]//span"
+                    "//div[contains(@class, 'post-author')]//span",
+                    "//div[contains(@class, 'contributor')]//span",
+                    "//a[contains(@href, '/contributors/')]",
+                    "//div[contains(@class, 'metadata')]//a"
                 ]
                 
                 for selector in author_selectors:
@@ -236,7 +254,7 @@ def extract_page_content(driver, url, max_retries=3):
                         for span in all_spans:
                             span_text = span.text.strip()
                             class_name = span.get_attribute('class') or ''
-                            if 'author' in class_name.lower() or 'profile' in class_name.lower():
+                            if 'author' in class_name.lower() or 'profile' in class_name.lower() or 'contributor' in class_name.lower():
                                 if span_text and len(span_text) > 3 and len(span_text) < 100:
                                     authors = span_text
                                     print(f"  Found author from span search: '{authors}'")
@@ -262,7 +280,9 @@ def extract_page_content(driver, url, max_retries=3):
                     "//div[contains(@class, 'article')]",
                     "//div[@role='article']",
                     "//div[contains(@class, 'blog-post')]",
-                    "//section[contains(@class, 'content')]"
+                    "//section[contains(@class, 'content')]",
+                    "//div[contains(@class, 'markdown')]",
+                    "//div[contains(@class, 'post-body')]"
                 ]
                 
                 for selector in content_selectors:
@@ -296,9 +316,9 @@ def extract_page_content(driver, url, max_retries=3):
             # Debug output for content detection
             if len(content) < 100:
                 print(f"  WARNING: Content too short ({len(content)} chars) - may indicate extraction issue")
-                # Log page source for debugging (first 500 chars)
+                # Log page source for debugging (first 1000 chars)
                 try:
-                    page_source_preview = driver.page_source[:500]
+                    page_source_preview = driver.page_source[:1000]
                     print(f"  Page source preview: {page_source_preview}")
                 except Exception as e:
                     print(f"  Could not get page source: {e}")
@@ -351,7 +371,7 @@ def update_post_in_dynamodb(post_id, authors, content):
 
 def get_posts_to_crawl(post_ids):
     """
-    Get posts to crawl from DynamoDB
+    Get posts to crawl from DynamoDB with enhanced validation
     
     Args:
         post_ids: List of specific post IDs to crawl
@@ -364,31 +384,4 @@ def get_posts_to_crawl(post_ids):
         try:
             response = table.get_item(Key={'post_id': post_id})
             if 'Item' in response:
-                item = response['Item']
-                post_data = {
-                    'post_id': post_id,
-                    'url': item.get('url', ''),
-                    'title': item.get('title', 'Unknown'),
-                    'date': item.get('date', 'Unknown')
-                }
-                posts.append(post_data)
-                print(f"  Found post: {post_data['title']} (Date: {post_data['date']}, URL: {post_data['url']})")
-            else:
-                print(f"  Warning: Post {post_id} not found in DynamoDB")
-        except Exception as e:
-            print(f"  Error fetching post {post_id}: {e}")
-    return posts
-
-
-def invoke_summary_generator(posts_updated):
-    """Invoke summary generator Lambda for the posts we just updated"""
-    try:
-        # Determine which alias to use based on environment
-        function_name = f"aws-blog-summary-generator:{ENVIRONMENT}"
-        
-        # Calculate number of batches needed (5 posts per batch)
-        batch_size = 5
-        num_batches = (posts_updated + batch_size - 1) // batch_size
-        
-        for i in range(num_batches):
-            lambda_client.
+                item = response

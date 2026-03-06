@@ -1,7 +1,7 @@
 ```python
 import boto3
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Connect to staging DynamoDB table
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -34,6 +34,8 @@ try:
             print(f"  URL: {post.get('url', 'No URL')}")
             print(f"  Date: {post.get('publish_date', 'No date')}")
             print(f"  Source: {post.get('source', 'No source')}")
+            print(f"  Created At: {post.get('created_at', 'No timestamp')}")
+            print(f"  Updated At: {post.get('updated_at', 'No timestamp')}")
     else:
         print(f"✗ Target blog post NOT FOUND in staging table")
         
@@ -74,6 +76,97 @@ try:
         else:
             print(f"✗ NO posts found from March 1-3, 2026")
             print(f"  This may indicate the crawler is not processing recent content")
+        
+        # NEW: Check for posts with future dates or incorrect date parsing
+        print(f"\nChecking for posts with future dates or date parsing issues...")
+        today = datetime.now().strftime('%Y-%m-%d')
+        future_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+        
+        response_future = table.scan(
+            FilterExpression='#date > :today',
+            ExpressionAttributeNames={'#date': 'publish_date'},
+            ExpressionAttributeValues={':today': today}
+        )
+        
+        future_posts = response_future['Items']
+        if future_posts:
+            print(f"⚠ WARNING: Found {len(future_posts)} posts with future dates:")
+            for post in sorted(future_posts, key=lambda x: x.get('publish_date', ''), reverse=True)[:10]:
+                print(f"  - {post.get('publish_date', 'No date')}: {post.get('title', 'No title')[:80]}")
+                print(f"    URL: {post.get('url', 'No URL')}")
+        
+        # NEW: Check for posts with missing or malformed dates
+        print(f"\nChecking for posts with missing or malformed dates...")
+        response_all = table.scan()
+        
+        posts_with_date_issues = []
+        for post in response_all['Items']:
+            pub_date = post.get('publish_date', '')
+            if not pub_date:
+                posts_with_date_issues.append(('missing', post))
+            elif not (len(pub_date) == 10 and pub_date.count('-') == 2):
+                posts_with_date_issues.append(('malformed', post))
+        
+        if posts_with_date_issues:
+            print(f"⚠ WARNING: Found {len(posts_with_date_issues)} posts with date issues:")
+            for issue_type, post in posts_with_date_issues[:10]:
+                print(f"  - [{issue_type.upper()}] {post.get('title', 'No title')[:60]}")
+                print(f"    Date value: '{post.get('publish_date', 'MISSING')}'")
+                print(f"    URL: {post.get('url', 'No URL')[:80]}")
+        
+        # NEW: Check crawler metadata and timestamps
+        print(f"\nAnalyzing crawler execution patterns...")
+        response_with_timestamps = table.scan()
+        
+        posts_with_timestamps = [p for p in response_with_timestamps['Items'] if p.get('created_at')]
+        
+        if posts_with_timestamps:
+            # Sort by creation timestamp to find most recent crawl
+            posts_by_timestamp = sorted(posts_with_timestamps, 
+                                       key=lambda x: x.get('created_at', ''), 
+                                       reverse=True)
+            
+            latest_crawled = posts_by_timestamp[0]
+            print(f"Most recently crawled post:")
+            print(f"  Title: {latest_crawled.get('title', 'No title')[:80]}")
+            print(f"  Created At: {latest_crawled.get('created_at', 'No timestamp')}")
+            print(f"  Publish Date: {latest_crawled.get('publish_date', 'No date')}")
+            print(f"  Source: {latest_crawled.get('source', 'No source')}")
+            
+            # Check if crawler has run since target date
+            target_datetime = datetime.strptime(TARGET_DATE, '%Y-%m-%d')
+            latest_crawl_time = latest_crawled.get('created_at', '')
+            
+            if latest_crawl_time:
+                try:
+                    latest_datetime = datetime.fromisoformat(latest_crawl_time.replace('Z', '+00:00'))
+                    if latest_datetime.date() < target_datetime.date():
+                        print(f"\n⚠ WARNING: Last crawl was before target post date!")
+                        print(f"  Crawler may need to run to pick up the new post")
+                except Exception as e:
+                    print(f"  Could not parse crawl timestamp: {e}")
+        
+        # NEW: Check for URL variations or redirects
+        print(f"\nChecking for URL variations or partial matches...")
+        url_parts = [
+            'amazon-workspaces-launches-graphics',
+            'g6-gr6-and-g6f-bundles',
+            'workspaces-launches-graphics',
+            'graphics-g6-gr6-and-g6f'
+        ]
+        
+        for url_part in url_parts:
+            response_variation = table.scan(
+                FilterExpression='contains(#url, :url_part)',
+                ExpressionAttributeNames={'#url': 'url'},
+                ExpressionAttributeValues={':url_part': url_part}
+            )
+            
+            if response_variation['Items']:
+                print(f"  Found {len(response_variation['Items'])} posts containing '{url_part}':")
+                for post in response_variation['Items'][:3]:
+                    print(f"    - {post.get('url', 'No URL')}")
+                    print(f"      Date: {post.get('publish_date', 'No date')}")
 
 except Exception as e:
     print(f"Error during specific post search: {str(e)}")
@@ -121,6 +214,63 @@ try:
 except Exception as e:
     print(f"Error during Builder.AWS posts check: {str(e)}")
 
+# NEW: Enhanced diagnostics for crawler configuration
+print(f"\n{'='*80}")
+print(f"CRAWLER DIAGNOSTICS")
+print(f"{'='*80}")
+
+try:
+    # Check all unique sources to verify crawler coverage
+    response_all_posts = table.scan()
+    all_posts = response_all_posts['Items']
+    
+    sources = set()
+    blog_categories = set()
+    
+    for post in all_posts:
+        source = post.get('source', 'unknown')
+        sources.add(source)
+        
+        url = post.get('url', '')
+        if '/blogs/' in url:
+            # Extract blog category from URL
+            parts = url.split('/blogs/')
+            if len(parts) > 1:
+                category = parts[1].split('/')[0]
+                blog_categories.add(category)
+    
+    print(f"Total unique sources: {len(sources)}")
+    print(f"Sources found: {', '.join(sorted(sources))}")
+    print(f"\nTotal unique blog categories: {len(blog_categories)}")
+    print(f"Blog categories (showing first 20):")
+    for category in sorted(blog_categories)[:20]:
+        print(f"  - {category}")
+    
+    if 'desktop-and-application-streaming' not in blog_categories:
+        print(f"\n⚠ CRITICAL: 'desktop-and-application-streaming' NOT in crawled categories!")
+        print(f"  Action required: Add this blog category to crawler configuration")
+    else:
+        print(f"\n✓ 'desktop-and-application-streaming' IS in crawled categories")
+        
+    # Check date distribution to identify filtering issues
+    print(f"\nDate distribution analysis:")
+    date_counts = {}
+    for post in all_posts:
+        pub_date = post.get('publish_date', 'unknown')
+        year_month = pub_date[:7] if len(pub_date) >= 7 else 'unknown'
+        date_counts[year_month] = date_counts.get(year_month, 0) + 1
+    
+    print(f"Posts by year-month (showing recent periods):")
+    for year_month in sorted(date_counts.keys(), reverse=True)[:12]:
+        print(f"  {year_month}: {date_counts[year_month]} posts")
+    
+    if '2026-03' not in date_counts or date_counts.get('2026-03', 0) == 0:
+        print(f"\n⚠ WARNING: No posts found for March 2026!")
+        print(f"  This suggests date filtering or crawler recency issues")
+
+except Exception as e:
+    print(f"Error during crawler diagnostics: {str(e)}")
+
 # Summary and recommendations
 print(f"\n{'='*80}")
 print(f"RECOMMENDATIONS")
@@ -131,5 +281,11 @@ print(f"3. Verify the blog post is publicly accessible at the target URL")
 print(f"4. Check if there are URL encoding or redirect issues")
 print(f"5. Ensure the crawler is running and completing successfully")
 print(f"6. Verify the publish date is being parsed correctly from the blog post")
+print(f"7. Check if date filtering logic is excluding posts with dates >= {TARGET_DATE}")
+print(f"8. Verify crawler's date range configuration (may be filtering future dates)")
+print(f"9. Check if blog category is in the crawler's whitelist/configuration")
+print(f"10. Review crawler execution schedule and last successful run timestamp")
+print(f"11. Inspect RSS feed or sitemap for this blog category to verify post presence")
+print(f"12. Check for metadata parsing issues (og:published_time, article:published_time)")
 print(f"{'='*80}\n")
 ```

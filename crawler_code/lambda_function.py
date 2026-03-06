@@ -8,7 +8,7 @@ and Builder.AWS.com, storing data in DynamoDB.
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 import re
 import xml.etree.ElementTree as ET
@@ -108,8 +108,25 @@ class AWSBlogCrawler:
                     path_check = full_url.replace(self.base_url, '').strip('/')
                     segments = [s for s in path_check.split('/') if s]
                     # Valid blog posts typically have at least 5 segments: blogs/desktop-and-application-streaming/year/month/post-slug
-                    if len(segments) >= 5 and full_url not in links:
+                    # BUGFIX: Reduced from 5 to 4 segments to capture posts that may have different URL structures
+                    # This ensures posts like /blogs/desktop-and-application-streaming/2026/03/new-post/ are detected
+                    if len(segments) >= 4 and full_url not in links:
+                        # Additional validation: check if it contains a date pattern (YYYY/MM or YYYY/MM/DD)
+                        if re.search(r'/\d{4}/\d{2}/', full_url):
+                            links.append(full_url)
+        
+        # BUGFIX: Additional extraction method - look for links with date patterns in href
+        # This catches posts that may be formatted differently in the HTML
+        all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
+        for link in all_date_links:
+            href = link.get('href')
+            if href:
+                full_url = urljoin(self.base_url, href)
+                if full_url not in links and full_url != self.base_url:
+                    # Ensure it's not a date archive page (which would end in /YYYY/MM/ or /YYYY/MM/DD/)
+                    if not re.search(r'/\d{4}/\d{2}/\d{2}/?$', full_url) and not re.search(r'/\d{4}/\d{2}/?$', full_url):
                         links.append(full_url)
+                        print(f"[DEBUG] Added post via date pattern: {full_url}")
         
         # Debug logging for staging environment
         if os.environ.get('ENVIRONMENT') == 'staging':
@@ -154,6 +171,42 @@ class AWSBlogCrawler:
                     return full_url
         
         print(f"[DEBUG] No next page found")
+        return None
+
+    def parse_date_string(self, date_str):
+        """
+        Parse various date string formats into ISO 8601 format.
+        Returns None if parsing fails.
+        """
+        if not date_str:
+            return None
+        
+        # List of date format patterns to try
+        date_formats = [
+            '%Y-%m-%dT%H:%M:%SZ',           # ISO 8601 with Z
+            '%Y-%m-%dT%H:%M:%S%z',          # ISO 8601 with timezone
+            '%Y-%m-%d',                      # Simple date
+            '%B %d, %Y',                     # March 2, 2026
+            '%b %d, %Y',                     # Mar 2, 2026
+            '%d %B %Y',                      # 2 March 2026
+            '%d %b %Y',                      # 2 Mar 2026
+            '%m/%d/%Y',                      # 03/02/2026
+            '%Y/%m/%d',                      # 2026/03/02
+        ]
+        
+        # Clean the date string
+        date_str = date_str.strip()
+        
+        # Try each format
+        for fmt in date_formats:
+            try:
+                parsed_date = datetime.strptime(date_str, fmt)
+                # Convert to ISO 8601 format with UTC timezone
+                return parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            except ValueError:
+                continue
+        
+        print(f"[WARNING] Could not parse date string: {date_str}")
         return None
 
     def extract_post_metadata(self, url, html):
@@ -215,119 +268,57 @@ class AWSBlogCrawler:
                         if name_match:
                             metadata['authors'] = name_match.group(1).strip()
         
-        # Enhanced date extraction with multiple fallback methods
+        # BUGFIX: Enhanced date extraction with multiple fallback methods and improved parsing
+        date_extracted = False
+        
         # Method 1: Look for time tag with datetime attribute
         date_tag = soup.find('time', {'datetime': True})
         if date_tag:
-            metadata['date_published'] = date_tag.get('datetime', '')
+            raw_date = date_tag.get('datetime', '')
+            parsed_date = self.parse_date_string(raw_date)
+            if parsed_date:
+                metadata['date_published'] = parsed_date
+                date_extracted = True
+                print(f"[DEBUG] Date from time tag: {metadata['date_published']}")
         
         # Method 2: Check meta tags for publication date
-        if not metadata['date_published']:
+        if not date_extracted:
             date_meta = (soup.find('meta', {'property': 'article:published_time'}) or
                         soup.find('meta', {'name': 'date'}) or
                         soup.find('meta', {'name': 'publish_date'}) or
-                        soup.find('meta', {'property': 'og:article:published_time'}))
+                        soup.find('meta', {'property': 'og:article:published_time'}) or
+                        soup.find('meta', {'name': 'publication_date'}))
             if date_meta:
-                metadata['date_published'] = date_meta.get('content', '')
+                raw_date = date_meta.get('content', '')
+                parsed_date = self.parse_date_string(raw_date)
+                if parsed_date:
+                    metadata['date_published'] = parsed_date
+                    date_extracted = True
+                    print(f"[DEBUG] Date from meta tag: {metadata['date_published']}")
         
-        # Method 3: Parse date from URL pattern (e.g., /2026/03/02/post-title/)
-        if not metadata['date_published']:
+        # Method 3: Parse date from URL pattern (e.g., /2026/03/02/post-title/ or /2026/03/post-title/)
+        if not date_extracted:
+            # Try full date pattern first (YYYY/MM/DD)
             url_date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
             if url_date_match:
                 year, month, day = url_date_match.groups()
                 # Convert to ISO format
                 metadata['date_published'] = f"{year}-{month}-{day}T00:00:00Z"
-                print(f"[DEBUG] Extracted date from URL pattern: {metadata['date_published']}")
+                date_extracted = True
+                print(f"[DEBUG] Extracted date from URL pattern (YYYY/MM/DD): {metadata['date_published']}")
+            else:
+                # Try year/month pattern (YYYY/MM)
+                url_date_match = re.search(r'/(\d{4})/(\d{2})/', url)
+                if url_date_match:
+                    year, month = url_date_match.groups()
+                    # Use first day of month as default
+                    metadata['date_published'] = f"{year}-{month}-01T00:00:00Z"
+                    date_extracted = True
+                    print(f"[DEBUG] Extracted date from URL pattern (YYYY/MM): {metadata['date_published']}")
         
-        # Method 4: Look for date pattern in page text
-        if not metadata['date_published']:
-            # Pattern: "Posted on March 2, 2026" or "Published: March 2, 2026"
+        # Method 4: Look for date pattern in page text with enhanced patterns
+        if not date_extracted:
+            # Enhanced date patterns to catch more variations
             date_patterns = [
-                r'(?:Posted on|Published|Date:)\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})',
-                r'(\d{1,2}\s+[A-Z][a-z]+\s+\d{4})',
-                r'([A-Z][a-z]+\s+\d{1,2},\s+\d{4})'
-            ]
-            for pattern in date_patterns:
-                date_match = re.search(pattern, page_text)
-                if date_match:
-                    date_str = date_match.group(1)
-                    try:
-                        # Try to parse the date string
-                        parsed_date = datetime.strptime(date_str, '%B %d, %Y')
-                        metadata['date_published'] = parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-                        print(f"[DEBUG] Extracted date from text pattern: {metadata['date_published']}")
-                        break
-                    except ValueError:
-                        continue
-        
-        # Extract updated date
-        updated_tag = soup.find('time', {'class': re.compile(r'updated|modified', re.IGNORECASE)})
-        if updated_tag:
-            metadata['date_updated'] = updated_tag.get('datetime', updated_tag.get_text(strip=True))
-        else:
-            updated_meta = soup.find('meta', {'property': 'article:modified_time'})
-            if updated_meta:
-                metadata['date_updated'] = updated_meta.get('content', '')
-        
-        # Extract tags
-        tags_section = soup.find('div', class_=re.compile(r'tags|categories', re.IGNORECASE))
-        if tags_section:
-            tag_links = tags_section.find_all('a')
-            metadata['tags'] = ', '.join([tag.get_text(strip=True) for tag in tag_links])
-        else:
-            tag_meta = soup.find('meta', {'property': 'article:tag'}) or soup.find('meta', {'name': 'keywords'})
-            if tag_meta:
-                metadata['tags'] = tag_meta.get('content', '')
-        
-        # Extract post content (first 3000 characters for summary generation)
-        # Look for main content area
-        content_area = (
-            soup.find('article') or 
-            soup.find('div', class_=re.compile(r'content|post-body|entry-content', re.IGNORECASE)) or
-            soup.find('main')
-        )
-        
-        if content_area:
-            # Remove script, style, and navigation elements
-            for element in content_area.find_all(['script', 'style', 'nav', 'header', 'footer']):
-                element.decompose()
-            
-            # Get text content
-            content_text = content_area.get_text(separator=' ', strip=True)
-            # Limit to first 3000 characters
-            metadata['content'] = content_text[:3000]
-        
-        # Set default author if none found
-        if not metadata['authors'] or metadata['authors'].strip() == '':
-            metadata['authors'] = 'Multiple Authors'
-        
-        # Debug logging for staging
-        if os.environ.get('ENVIRONMENT') == 'staging':
-            print(f"[DEBUG] Extracted metadata for {url}:")
-            print(f"[DEBUG]   Title: {metadata['title']}")
-            print(f"[DEBUG]   Date Published: {metadata['date_published']}")
-            print(f"[DEBUG]   Authors: {metadata['authors']}")
-            print(f"[DEBUG]   Content length: {len(metadata['content'])} chars")
-        
-        return metadata
-    
-    def save_to_dynamodb(self, metadata):
-        """Save a single post to DynamoDB"""
-        try:
-            # Create a unique ID from the URL
-            post_id = metadata['url'].split('/')[-2] if metadata['url'].endswith('/') else metadata['url'].split('/')[-1]
-            
-            # Check if item exists and if content changed
-            content_changed = False
-            try:
-                response = self.table.get_item(Key={'post_id': post_id})
-                if 'Item' in response:
-                    self.posts_updated += 1
-                    existing_item = response['Item']
-                    
-                    # Check if content changed
-                    old_content = existing_item.get('content', '')
-                    new_content = metadata['content']
-                    if old_content != new_content:
-                        content_changed = True
-                
+                # "Posted on March 2, 2026" or "Published: March 2, 2026"
+                r'(?:Posted on|Published|Date:|
