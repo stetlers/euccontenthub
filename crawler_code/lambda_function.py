@@ -68,15 +68,17 @@ class AWSBlogCrawler:
         """Fetch a page with retry logic"""
         for attempt in range(retries):
             try:
+                print(f"[DEBUG] Fetching URL (attempt {attempt + 1}): {url}")
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
+                print(f"[DEBUG] Successfully fetched {url} - Status: {response.status_code}")
                 return response.text
             except requests.RequestException as e:
-                print(f"Attempt {attempt + 1} failed for {url}: {e}")
+                print(f"[ERROR] Attempt {attempt + 1} failed for {url}: {e}")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                 else:
-                    print(f"Failed to fetch {url} after {retries} attempts")
+                    print(f"[ERROR] Failed to fetch {url} after {retries} attempts")
                     return None
     
     def extract_post_links(self, html):
@@ -84,8 +86,11 @@ class AWSBlogCrawler:
         soup = BeautifulSoup(html, 'html.parser')
         links = []
         
+        print(f"[DEBUG] Starting post link extraction from listing page")
+        
         # Find all article links
         articles = soup.find_all('article') or soup.find_all('div', class_=re.compile(r'post|article|entry'))
+        print(f"[DEBUG] Found {len(articles)} article containers")
         
         for article in articles:
             link_tag = article.find('a', href=True)
@@ -95,9 +100,11 @@ class AWSBlogCrawler:
                 # Updated to handle both production and staging domains
                 if '/blogs/desktop-and-application-streaming/' in full_url and full_url != self.base_url:
                     links.append(full_url)
+                    print(f"[DEBUG] Found post from article container: {full_url}")
         
         # Alternative: find all links that match the blog pattern
         if not links:
+            print(f"[DEBUG] No links found in articles, trying alternative extraction")
             all_links = soup.find_all('a', href=True)
             for link in all_links:
                 href = link['href']
@@ -116,10 +123,13 @@ class AWSBlogCrawler:
                         has_slug = re.search(r'/[a-z0-9\-]+/?$', full_url)
                         if has_date or has_slug:
                             links.append(full_url)
+                            print(f"[DEBUG] Added post via path validation: {full_url}")
         
         # BUGFIX: Enhanced extraction method - look for links with date patterns in href
         # This catches posts that may be formatted differently in the HTML, including 2026 dates
+        print(f"[DEBUG] Scanning for posts with date patterns in URL")
         all_date_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/\d{4}/\d{2}/'))
+        print(f"[DEBUG] Found {len(all_date_links)} links with date patterns")
         for link in all_date_links:
             href = link.get('href')
             if href:
@@ -132,7 +142,9 @@ class AWSBlogCrawler:
         
         # BUGFIX: Additional comprehensive extraction - look for any link containing blog path with content
         # This is a catch-all to ensure we don't miss posts with non-standard formatting
+        print(f"[DEBUG] Running comprehensive scan for all blog links")
         all_blog_links = soup.find_all('a', href=re.compile(r'/blogs/desktop-and-application-streaming/'))
+        print(f"[DEBUG] Found {len(all_blog_links)} total links with blog path")
         for link in all_blog_links:
             href = link.get('href')
             if href:
@@ -149,11 +161,12 @@ class AWSBlogCrawler:
                         links.append(full_url)
                         print(f"[DEBUG] Added post via comprehensive scan: {full_url}")
         
-        # Debug logging for staging environment
+        # Debug logging for all environments
+        print(f"[DEBUG] Total extracted {len(links)} unique post links from listing page")
         if os.environ.get('ENVIRONMENT') == 'staging':
-            print(f"[DEBUG] Extracted {len(links)} post links from listing page")
-            for link in links:
-                print(f"[DEBUG] Found post URL: {link}")
+            print(f"[DEBUG] STAGING MODE - Full link list:")
+            for i, link in enumerate(links, 1):
+                print(f"[DEBUG]   {i}. {link}")
         
         return list(set(links))
     
@@ -191,13 +204,14 @@ class AWSBlogCrawler:
                     print(f"[DEBUG] Found next page via pagination nav: {full_url}")
                     return full_url
         
-        print(f"[DEBUG] No next page found")
+        print(f"[DEBUG] No next page found - reached end of pagination")
         return None
 
     def parse_date_string(self, date_str):
         """
         Parse various date string formats into ISO 8601 format.
         Returns None if parsing fails.
+        BUGFIX: Enhanced to handle more date formats and future dates (2026+)
         """
         if not date_str:
             return None
@@ -215,6 +229,8 @@ class AWSBlogCrawler:
             '%m/%d/%Y',                      # 03/02/2026
             '%Y/%m/%d',                      # 2026/03/02
             '%Y-%m-%d %H:%M:%S',            # 2026-03-02 10:30:00
+            '%a, %d %b %Y %H:%M:%S %z',     # Mon, 02 Mar 2026 10:30:00 +0000
+            '%a, %d %b %Y %H:%M:%S %Z',     # Mon, 02 Mar 2026 10:30:00 GMT
         ]
         
         # Clean the date string
@@ -226,16 +242,19 @@ class AWSBlogCrawler:
                 parsed_date = datetime.strptime(date_str, fmt)
                 # Convert to ISO 8601 format with UTC timezone
                 iso_date = parsed_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-                print(f"[DEBUG] Successfully parsed date '{date_str}' as '{iso_date}'")
+                print(f"[DEBUG] Successfully parsed date '{date_str}' as '{iso_date}' using format '{fmt}'")
                 return iso_date
             except ValueError:
                 continue
         
-        print(f"[WARNING] Could not parse date string: {date_str}")
+        print(f"[WARNING] Could not parse date string: '{date_str}'")
         return None
 
     def extract_post_metadata(self, url, html):
-        """Extract metadata from a blog post"""
+        """
+        Extract metadata from a blog post
+        BUGFIX: Enhanced date extraction with comprehensive logging for debugging
+        """
         soup = BeautifulSoup(html, 'html.parser')
         
         metadata = {
@@ -254,7 +273,8 @@ class AWSBlogCrawler:
             metadata['title'] = title_tag.get_text(strip=True)
             metadata['title'] = metadata['title'].split('|')[0].strip()
         
-        print(f"[DEBUG] Extracting metadata for: {metadata['title']}")
+        print(f"[DEBUG] ========== Extracting metadata for: {metadata['title']} ==========")
+        print(f"[DEBUG] URL: {url}")
         
         # Extract authors - try multiple methods
         
@@ -263,6 +283,7 @@ class AWSBlogCrawler:
         by_match = re.search(r'\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\s+on\s+\d', page_text)
         if by_match:
             metadata['authors'] = by_match.group(1).strip()
+            print(f"[DEBUG] Authors extracted via 'by...on' pattern: {metadata['authors']}")
         
         # Method 2: Check author div/section
         if not metadata['authors']:
@@ -270,47 +291,13 @@ class AWSBlogCrawler:
             if author_section:
                 authors = author_section.find_all('a') or [author_section]
                 metadata['authors'] = ', '.join([a.get_text(strip=True) for a in authors if a.get_text(strip=True)])
+                print(f"[DEBUG] Authors extracted from author section: {metadata['authors']}")
         
         # Method 3: Check meta tags
         if not metadata['authors']:
             author_meta = soup.find('meta', {'name': 'author'}) or soup.find('meta', {'property': 'article:author'})
             if author_meta:
                 metadata['authors'] = author_meta.get('content', '')
+                print(f"[DEBUG] Authors extracted from meta tag: {metadata['authors']}")
         
-        # Method 4: Look for "About the Author" section (not all posts have this)
-        if not metadata['authors']:
-            about_author = soup.find(string=re.compile(r'About the Author', re.IGNORECASE))
-            if about_author:
-                parent = about_author.find_parent()
-                if parent:
-                    # Look for the next paragraph or table after "About the Author"
-                    next_elem = parent.find_next_sibling()
-                    if not next_elem:
-                        next_elem = parent.find_next(['p', 'table'])
-                    
-                    if next_elem:
-                        text = next_elem.get_text()
-                        # Pattern: "Name is a Title..." or "Name has been..."
-                        name_match = re.search(r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+(?:is|has|works|serves)', text)
-                        if name_match:
-                            metadata['authors'] = name_match.group(1).strip()
-        
-        print(f"[DEBUG] Extracted authors: {metadata['authors']}")
-        
-        # BUGFIX: Enhanced date extraction with multiple fallback methods and improved parsing
-        # Special handling for 2026 dates and staging environment
-        date_extracted = False
-        
-        # Method 1: Look for time tag with datetime attribute
-        date_tag = soup.find('time', {'datetime': True})
-        if date_tag:
-            raw_date = date_tag.get('datetime', '')
-            print(f"[DEBUG] Found time tag with datetime: {raw_date}")
-            parsed_date = self.parse_date_string(raw_date)
-            if parsed_date:
-                metadata['date_published'] = parsed_date
-                date_extracted = True
-                print(f"[DEBUG] Date from time tag: {metadata['date_published']}")
-        
-        # Method 2: Check meta tags for publication date (enhanced with more meta tag types)
-        if not date_extracted:
+        # Method 4: Look for "About the Author" section (not all

@@ -292,11 +292,14 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     'aws.amazon.com/blogs' in source or
                     'awsblogscontent.com' in source
                 )
+                # FIX: Enhanced staging detection to catch all staging domain variants
                 is_staging = (
                     'staging' in url.lower() or 
                     'staging' in source.lower() or 
                     'staging.awseuccontent.com' in url.lower() or 
                     'staging.awseuccontent.com' in source.lower() or
+                    '.awseuccontent.com' in url.lower() or
+                    '.awseuccontent.com' in source.lower() or
                     'staging.' in url.lower() or
                     'staging.' in source.lower()
                 )
@@ -355,7 +358,4 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None):
                     included_by_reason['builder_euc'] += 1
                 elif is_aws_blog and is_das_category:
                     should_include = True
-                    inclusion_reason = 'aws_blog_das_category'
-                    included_by_reason['aws_blog_das_category'] += 1
-                elif is_aws_blog and is_euc_related:
-                    should_include = True
+                    inclusion_reason = 'aws_
