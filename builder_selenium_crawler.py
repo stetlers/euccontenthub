@@ -171,12 +171,27 @@ def check_staging_table_for_post(target_date='2026-03-02', keywords=None):
         response = staging_table.scan()
         
         matching_posts = []
+        all_posts = []
+        
         for item in response.get('Items', []):
             url = item.get('url', '')
             title = item.get('title', '')
             published_date = item.get('published_date', '')
             post_id = item.get('post_id', '')
+            category = item.get('category', '')
+            source = item.get('source', '')
             text = f"{url} {title}".lower()
+            
+            # Track all desktop-and-application-streaming posts for diagnostics
+            if 'desktop-and-application-streaming' in url.lower() or 'desktop-and-application-streaming' in category.lower():
+                all_posts.append({
+                    'post_id': post_id,
+                    'title': title,
+                    'url': url,
+                    'published_date': published_date,
+                    'category': category,
+                    'source': source
+                })
             
             # Check if matches our target criteria
             date_match = target_date in published_date
@@ -188,25 +203,44 @@ def check_staging_table_for_post(target_date='2026-03-02', keywords=None):
                     'title': title,
                     'url': url,
                     'published_date': published_date,
+                    'category': category,
+                    'source': source,
                     'date_match': date_match,
                     'keyword_match': keyword_match,
                     'matched_keywords': [kw for kw in keywords if kw in text]
                 })
         
-        print(f"  Found {len(matching_posts)} matching posts in staging table")
-        for post in matching_posts:
-            print(f"\n  Post: {post['title']}")
-            print(f"    ID: {post['post_id']}")
-            print(f"    Date: {post['published_date']}")
-            print(f"    URL: {post['url']}")
-            print(f"    Date Match: {post['date_match']}")
-            print(f"    Keyword Match: {post['keyword_match']}")
-            print(f"    Matched Keywords: {post['matched_keywords']}")
+        print(f"  Found {len(all_posts)} total desktop-and-application-streaming posts")
+        print(f"  Found {len(matching_posts)} posts matching search criteria")
+        
+        if all_posts:
+            print(f"\n  All desktop-and-application-streaming posts:")
+            for post in sorted(all_posts, key=lambda x: x['published_date'], reverse=True)[:10]:
+                print(f"    - {post['published_date']}: {post['title']}")
+                print(f"      URL: {post['url']}")
+                print(f"      Source: {post['source']}")
+        
+        if matching_posts:
+            print(f"\n  Matching posts:")
+            for post in matching_posts:
+                print(f"\n  Post: {post['title']}")
+                print(f"    ID: {post['post_id']}")
+                print(f"    Date: {post['published_date']}")
+                print(f"    URL: {post['url']}")
+                print(f"    Category: {post['category']}")
+                print(f"    Source: {post['source']}")
+                print(f"    Date Match: {post['date_match']}")
+                print(f"    Keyword Match: {post['keyword_match']}")
+                print(f"    Matched Keywords: {post['matched_keywords']}")
+        else:
+            print(f"\n  No matching posts found for date={target_date}, keywords={keywords}")
         
         return matching_posts
         
     except Exception as e:
         print(f"  Error checking staging table: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
@@ -298,7 +332,8 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None, enable_diagnostics=
                 source = item.get('source', '')
                 published_date = item.get('published_date', '')
                 post_id = item.get('post_id', '')
-                text = f"{url} {title}".lower()
+                category = item.get('category', '')
+                text = f"{url} {title} {category}".lower()
                 
                 # Enhanced detection for the March 2, 2026 WorkSpaces Graphics post
                 is_target_post = (
@@ -321,7 +356,8 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None, enable_diagnostics=
                         'url': url,
                         'title': title,
                         'published_date': published_date,
-                        'source': source
+                        'source': source,
+                        'category': category
                     }
                     print(f"\n{'='*80}")
                     print(f">>> DIAGNOSTIC: FOUND TARGET POST (March 2, 2026 WorkSpaces Graphics)")
@@ -331,38 +367,11 @@ def get_posts_to_crawl(post_ids=None, date_filter_days=None, enable_diagnostics=
                     print(f"    URL: {url}")
                     print(f"    Published: {published_date}")
                     print(f"    Source: {source}")
+                    print(f"    Category: {category}")
                 
                 # Enhanced date filtering with better error handling and timezone awareness
                 if cutoff_date and published_date:
                     try:
                         post_date = None
                         
-                        if 'T' in published_date:
-                            # ISO format with potential timezone
-                            try:
-                                post_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
-                            except ValueError:
-                                post_date = datetime.fromisoformat(published_date.split('+')[0].split('Z')[0])
-                                post_date = post_date.replace(tzinfo=timezone.utc)
-                        else:
-                            # Simple date format YYYY-MM-DD
-                            post_date = datetime.strptime(published_date, '%Y-%m-%d')
-                            post_date = post_date.replace(tzinfo=timezone.utc)
-                        
-                        # Ensure cutoff_date is timezone-aware for comparison
-                        if cutoff_date.tzinfo is None:
-                            cutoff_date = cutoff_date.replace(tzinfo=timezone.utc)
-                        
-                        # Include future dates (like 2026) - only filter out dates BEFORE cutoff
-                        if post_date < cutoff_date:
-                            if is_target_post and enable_diagnostics:
-                                print(f"    >>> DIAGNOSTIC: Target post FILTERED OUT by date")
-                                print(f"        Post date: {post_date}")
-                                print(f"        Cutoff date: {cutoff_date}")
-                                print(f"        Decision: SKIPPED")
-                            skipped_by_date += 1
-                            continue
-                        elif is_target_post and enable_diagnostics:
-                            print(f"    >>> DIAGNOSTIC: Target post PASSED date filter")
-                            print(f"        Post date: {post_date}")
-                            print(f"        Cutoff date: {cut
+                        if 'T' in

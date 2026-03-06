@@ -19,7 +19,8 @@ diagnostics = {
     'crawler_logic_issues': [],
     'content_detection_issues': [],
     'metadata_extraction_issues': [],
-    'filtering_criteria_issues': []
+    'filtering_criteria_issues': [],
+    'rss_feed_issues': []
 }
 
 # Check for the specific Amazon WorkSpaces blog post from March 2, 2026
@@ -276,5 +277,4 @@ try:
     
     print(f"Checking if blog path '{url_components['base_path']}' is being crawled...")
     
-    response = table.scan(
-        FilterExpression='contains(
+    # Scan

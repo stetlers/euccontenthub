@@ -304,9 +304,12 @@ def check_filtering_criteria(metadata, url):
             print(f"  DEBUG: ✓ Date is parseable: {parsed_date}")
             log_to_cloudwatch(f"Parsed date: {parsed_date} from {metadata['publication_date']}", 'DEBUG')
             
-            # Check if date is reasonable (not in far future or too old)
+            # Check if date is reasonable - FIXED: Allow future dates up to 1 year ahead
+            # This fixes the issue with staging posts that may have future dates during testing
             now = datetime.now(timezone.utc)
-            if parsed_date <= now and parsed_date.year >= 2006:  # AWS founded in 2006
+            one_year_ahead = now.replace(year=now.year + 1)
+            
+            if parsed_date <= one_year_ahead and parsed_date.year >= 2006:  # AWS founded in 2006
                 criteria['date_within_range'] = True
                 print(f"  DEBUG: ✓ Date is within valid range")
             else:
@@ -369,9 +372,4 @@ def extract_aws_blog_metadata(driver, url):
     """
     Extract comprehensive metadata from AWS blog post for debugging
     Enhanced to better detect staging posts and various date formats
-    
-    Returns:
-        dict: Complete metadata including publication date, author, categories, etc.
-    """
-    print(f"  DEBUG: Extracting comprehensive metadata from: {url}")
-    log_to_cloudwatch(f"Extracting comprehensive metadata from: {url}", 'INFO')
+    FIXED: Improved date extraction for staging.awseuccontent.com posts
