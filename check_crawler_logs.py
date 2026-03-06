@@ -43,6 +43,17 @@ def check_crawler_configuration():
             for key, value in env_vars.items():
                 if any(term in key.lower() for term in ['date', 'filter', 'url', 'category']):
                     print(f"  {key}: {value}")
+                    # Flag potential date range issues
+                    if 'date' in key.lower() and value:
+                        try:
+                            env_date = datetime.strptime(value[:10], '%Y-%m-%d')
+                            target_date_obj = datetime.strptime(TARGET_DATE, '%Y-%m-%d')
+                            if 'after' in key.lower() and env_date > target_date_obj:
+                                print(f"    ⚠ WARNING: {key} is AFTER target date {TARGET_DATE}")
+                            if 'before' in key.lower() and env_date < target_date_obj:
+                                print(f"    ⚠ WARNING: {key} is BEFORE target date {TARGET_DATE}")
+                        except (ValueError, TypeError):
+                            pass
         else:
             print("\nNo environment variables found")
         
@@ -55,6 +66,8 @@ def analyze_date_filtering(events):
     """Analyze date filtering logic in crawler"""
     date_patterns = []
     date_comparisons = []
+    date_parsing_errors = []
+    cutoff_dates = []
     
     for event in events:
         message = event["message"].strip()
@@ -65,20 +78,30 @@ def analyze_date_filtering(events):
             if date_match:
                 date_patterns.append({
                     'message': message,
-                    'date': date_match.group(0)
+                    'date': date_match.group(0),
+                    'timestamp': event['timestamp']
                 })
         
         # Look for comparison operators with dates
         if re.search(r'(>|<|>=|<=|==|!=).*\d{4}', message):
             date_comparisons.append(message)
+        
+        # Look for date parsing errors
+        if any(term in message.lower() for term in ['date parse', 'invalid date', 'date format', 'strptime']):
+            date_parsing_errors.append(message)
+        
+        # Look for cutoff dates or date range filters
+        if any(term in message.lower() for term in ['cutoff', 'since', 'from date', 'after date', 'date range']):
+            cutoff_dates.append(message)
     
-    return date_patterns, date_comparisons
+    return date_patterns, date_comparisons, date_parsing_errors, cutoff_dates
 
 def analyze_url_detection(events):
     """Analyze URL detection and pattern matching"""
     detected_urls = []
     url_patterns = []
     rejected_urls = []
+    category_filters = []
     
     for event in events:
         message = event["message"].strip()
@@ -86,24 +109,29 @@ def analyze_url_detection(events):
         # Extract all URLs
         urls = re.findall(r'https?://[^\s\'"]+', message)
         for url in urls:
-            url_entry = {'url': url, 'message': message}
+            url_entry = {'url': url, 'message': message, 'timestamp': event['timestamp']}
             
-            if any(term in message.lower() for term in ['skip', 'reject', 'filter', 'ignore']):
+            if any(term in message.lower() for term in ['skip', 'reject', 'filter', 'ignore', 'exclude']):
                 rejected_urls.append(url_entry)
-            elif any(term in message.lower() for term in ['process', 'crawl', 'fetch', 'found']):
+            elif any(term in message.lower() for term in ['process', 'crawl', 'fetch', 'found', 'detected', 'adding']):
                 detected_urls.append(url_entry)
         
         # Look for URL pattern matching logic
         if 'pattern' in message.lower() or 'regex' in message.lower() or 'match' in message.lower():
             url_patterns.append(message)
+        
+        # Look for category filtering
+        if 'category' in message.lower() or 'blog category' in message.lower():
+            category_filters.append(message)
     
-    return detected_urls, rejected_urls, url_patterns
+    return detected_urls, rejected_urls, url_patterns, category_filters
 
 def analyze_scraping_patterns(events):
     """Analyze scraping patterns and content extraction"""
     scraping_issues = []
     content_extraction = []
     parser_errors = []
+    metadata_extraction = []
     
     for event in events:
         message = event["message"].strip()
@@ -113,14 +141,18 @@ def analyze_scraping_patterns(events):
             content_extraction.append(message)
         
         # Look for parser errors
-        if any(term in message.lower() for term in ['parse error', 'extraction failed', 'selector', 'xpath']):
+        if any(term in message.lower() for term in ['parse error', 'extraction failed', 'selector', 'xpath', 'beautifulsoup']):
             parser_errors.append(message)
         
         # Look for missing elements
-        if any(term in message.lower() for term in ['not found', 'missing', 'empty', 'null']):
+        if any(term in message.lower() for term in ['not found', 'missing', 'empty', 'null', 'none returned']):
             scraping_issues.append(message)
+        
+        # Look for metadata extraction (title, date, author)
+        if any(term in message.lower() for term in ['title', 'author', 'publish date', 'metadata']):
+            metadata_extraction.append(message)
     
-    return content_extraction, parser_errors, scraping_issues
+    return content_extraction, parser_errors, scraping_issues, metadata_extraction
 
 def check_for_target_post(events):
     """Check if target blog post was encountered in any form"""
@@ -129,33 +161,68 @@ def check_for_target_post(events):
         'category_match': False,
         'keyword_match': False,
         'date_match': False,
+        'url_processed': False,
+        'url_rejected': False,
         'related_messages': []
     }
     
     for event in events:
         message = event["message"].strip()
+        timestamp = datetime.fromtimestamp(event['timestamp'] / 1000)
+        
+        # Check for exact URL or URL slug
+        if 'amazon-workspaces-launches-graphics-g6' in message.lower():
+            target_indicators['url_match'] = True
+            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] URL Match: {message}")
+            if any(term in message.lower() for term in ['process', 'crawl', 'fetch', 'success']):
+                target_indicators['url_processed'] = True
+            if any(term in message.lower() for term in ['skip', 'reject', 'filter', 'ignore']):
+                target_indicators['url_rejected'] = True
         
         # Check for category
         if TARGET_CATEGORY in message.lower():
             target_indicators['category_match'] = True
-            target_indicators['related_messages'].append(f"Category: {message}")
+            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] Category: {message}")
         
         # Check for keywords
-        if 'workspaces' in message.lower() and 'graphics' in message.lower():
+        if 'workspaces' in message.lower() and ('graphics' in message.lower() or 'g6' in message.lower()):
             target_indicators['keyword_match'] = True
-            target_indicators['related_messages'].append(f"Keywords: {message}")
+            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] Keywords: {message}")
         
-        # Check for date
-        if TARGET_DATE in message:
+        # Check for date - be flexible with date formats
+        if TARGET_DATE in message or '2026-03-02' in message or 'march 2, 2026' in message.lower() or 'march 02, 2026' in message.lower():
             target_indicators['date_match'] = True
-            target_indicators['related_messages'].append(f"Date: {message}")
+            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] Date: {message}")
         
-        # Check for any part of the URL
-        if 'g6' in message.lower() or 'gr6' in message.lower() or 'g6f' in message.lower():
+        # Check for any part of the URL fragments
+        if any(term in message.lower() for term in ['g6-gr6-and-g6f', 'gr6', 'g6f-bundles']):
             target_indicators['url_match'] = True
-            target_indicators['related_messages'].append(f"URL Fragment: {message}")
+            target_indicators['related_messages'].append(f"[{timestamp.strftime('%H:%M:%S')}] URL Fragment: {message}")
     
     return target_indicators
+
+def analyze_rss_feed_parsing(events):
+    """Analyze RSS feed parsing and post discovery"""
+    rss_feeds = []
+    feed_errors = []
+    post_discovery = []
+    
+    for event in events:
+        message = event["message"].strip()
+        
+        # Look for RSS feed processing
+        if any(term in message.lower() for term in ['rss', 'feed', 'xml']):
+            rss_feeds.append(message)
+        
+        # Look for feed parsing errors
+        if 'feed' in message.lower() and any(term in message.lower() for term in ['error', 'fail', 'invalid', 'timeout']):
+            feed_errors.append(message)
+        
+        # Look for post discovery messages
+        if any(term in message.lower() for term in ['found post', 'discovered', 'new post', 'blog entry']):
+            post_discovery.append(message)
+    
+    return rss_feeds, feed_errors, post_discovery
 
 def analyze_log_events(events):
     """Analyze log events for crawler behavior and potential issues"""
@@ -189,186 +256,82 @@ def analyze_log_events(events):
     # 1. Date filtering analysis
     print("\n1. DATE FILTERING ANALYSIS")
     print("-" * 80)
-    date_patterns, date_comparisons = analyze_date_filtering(events)
+    date_patterns, date_comparisons, date_parsing_errors, cutoff_dates = analyze_date_filtering(events)
     if date_patterns:
         print(f"Found {len(date_patterns)} date-related patterns:")
-        for pattern in date_patterns[:5]:
+        for pattern in date_patterns[:10]:
             print(f"  Date: {pattern['date']} | {pattern['message'][:100]}")
-        if TARGET_DATE in [p['date'] for p in date_patterns]:
+        
+        # Check if target date is in range of found dates
+        found_dates = [p['date'] for p in date_patterns]
+        if TARGET_DATE in found_dates:
             print(f"✓ Target date {TARGET_DATE} was found in logs")
         else:
             print(f"⚠ Target date {TARGET_DATE} was NOT found in logs")
+            # Show date range
+            if found_dates:
+                min_date = min(found_dates)
+                max_date = max(found_dates)
+                print(f"  Date range in logs: {min_date} to {max_date}")
+                if TARGET_DATE < min_date:
+                    print(f"  ⚠ Target date is BEFORE earliest date in logs")
+                elif TARGET_DATE > max_date:
+                    print(f"  ⚠ Target date is AFTER latest date in logs")
     else:
         print("⚠ No date filtering patterns detected in logs")
     
     if date_comparisons:
         print(f"\nFound {len(date_comparisons)} date comparison operations:")
-        for comp in date_comparisons[:3]:
-            print(f"  {comp[:100]}")
+        for comp in date_comparisons[:5]:
+            print(f"  {comp[:150]}")
+    
+    if date_parsing_errors:
+        print(f"\n⚠ Found {len(date_parsing_errors)} date parsing errors:")
+        for error in date_parsing_errors[:3]:
+            print(f"  {error[:150]}")
+    
+    if cutoff_dates:
+        print(f"\nFound {len(cutoff_dates)} cutoff/range date filters:")
+        for cutoff in cutoff_dates[:5]:
+            print(f"  {cutoff[:150]}")
     
     # 2. URL detection analysis
     print("\n2. URL DETECTION ANALYSIS")
     print("-" * 80)
-    detected_urls, rejected_urls, url_patterns = analyze_url_detection(events)
+    detected_urls, rejected_urls, url_patterns, category_filters = analyze_url_detection(events)
     print(f"Detected URLs: {len(detected_urls)}")
     print(f"Rejected/Filtered URLs: {len(rejected_urls)}")
     print(f"URL Pattern Rules: {len(url_patterns)}")
+    print(f"Category Filter Messages: {len(category_filters)}")
     
     if detected_urls:
         print("\nSample detected URLs:")
         for url_entry in detected_urls[:5]:
-            print(f"  {url_entry['url']}")
+            ts = datetime.fromtimestamp(url_entry['timestamp'] / 1000)
+            print(f"  [{ts.strftime('%H:%M:%S')}] {url_entry['url']}")
     
     if rejected_urls:
         print("\nSample rejected URLs:")
         for url_entry in rejected_urls[:5]:
-            print(f"  {url_entry['url']}")
+            ts = datetime.fromtimestamp(url_entry['timestamp'] / 1000)
+            print(f"  [{ts.strftime('%H:%M:%S')}] {url_entry['url']}")
             print(f"    Reason: {url_entry['message'][:80]}")
     
-    # Check if target URL was rejected
+    # Check if target URL or category was rejected
     target_in_rejected = any(TARGET_CATEGORY in url['url'] for url in rejected_urls)
     if target_in_rejected:
         print(f"\n⚠ WARNING: URLs from category '{TARGET_CATEGORY}' were REJECTED")
+        matching_rejected = [url for url in rejected_urls if TARGET_CATEGORY in url['url']]
+        for url in matching_rejected[:3]:
+            print(f"  Rejected: {url['url']}")
+            print(f"  Message: {url['message'][:100]}")
     
-    # 3. Scraping patterns analysis
-    print("\n3. SCRAPING PATTERNS ANALYSIS")
+    if category_filters:
+        print(f"\nCategory filtering detected ({len(category_filters)} messages):")
+        for cat_filter in category_filters[:3]:
+            print(f"  {cat_filter[:150]}")
+    
+    # 3. RSS Feed analysis
+    print("\n3. RSS FEED PARSING ANALYSIS")
     print("-" * 80)
-    content_extraction, parser_errors, scraping_issues = analyze_scraping_patterns(events)
-    print(f"Content extraction attempts: {len(content_extraction)}")
-    print(f"Parser errors: {len(parser_errors)}")
-    print(f"Scraping issues: {len(scraping_issues)}")
-    
-    if parser_errors:
-        print("\nParser errors detected:")
-        for error in parser_errors[:3]:
-            print(f"  - {error[:100]}")
-    
-    if scraping_issues:
-        print("\nScraping issues detected:")
-        for issue in scraping_issues[:3]:
-            print(f"  - {issue[:100]}")
-    
-    # 4. Target post detection
-    print("\n4. TARGET POST DETECTION")
-    print("-" * 80)
-    target_indicators = check_for_target_post(events)
-    print(f"URL Match: {target_indicators['url_match']}")
-    print(f"Category Match: {target_indicators['category_match']}")
-    print(f"Keyword Match: {target_indicators['keyword_match']}")
-    print(f"Date Match: {target_indicators['date_match']}")
-    
-    if target_indicators['related_messages']:
-        print("\nRelated messages found:")
-        for msg in target_indicators['related_messages']:
-            print(f"  {msg[:150]}")
-    else:
-        print("\n⚠ No messages related to target post found")
-    
-    # Print investigation summary
-    print("\n" + "=" * 80)
-    print("INVESTIGATION SUMMARY")
-    print("=" * 80)
-    print(f"Target URL: {TARGET_URL}")
-    print(f"Target Date: {TARGET_DATE}")
-    print(f"Target Category: {TARGET_CATEGORY}")
-    print(f"\nTotal crawl errors: {len(crawl_errors)}")
-    
-    if crawl_errors:
-        print("\nRecent errors (showing first 5):")
-        for error in crawl_errors[:5]:
-            print(f"  [{error['timestamp'].strftime('%H:%M:%S')}] {error['message'][:100]}")
-    
-    # Provide recommendations
-    print("\n" + "=" * 80)
-    print("RECOMMENDATIONS")
-    print("=" * 80)
-    
-    recommendations = []
-    
-    if not target_indicators['category_match']:
-        recommendations.append("⚠ The target category 'desktop-and-application-streaming' was not found")
-        recommendations.append("  → Verify the crawler is configured to crawl this category")
-        recommendations.append("  → Check RSS feed or sitemap includes this category")
-    
-    if not target_indicators['date_match'] and date_patterns:
-        recommendations.append(f"⚠ The target date {TARGET_DATE} was not found in date filtering")
-        recommendations.append("  → Check date range filters in crawler configuration")
-        recommendations.append("  → Verify date comparison logic allows posts from March 2026")
-    
-    if not target_indicators['keyword_match']:
-        recommendations.append("⚠ Keywords 'WorkSpaces' and 'Graphics' not found together")
-        recommendations.append("  → Verify blog post is published and accessible")
-        recommendations.append("  → Check if content filtering is too restrictive")
-    
-    if rejected_urls and target_in_rejected:
-        recommendations.append("⚠ URLs from target category were rejected/filtered")
-        recommendations.append("  → Review URL filtering rules and patterns")
-        recommendations.append("  → Check for overly restrictive regex patterns")
-    
-    if parser_errors:
-        recommendations.append("⚠ Parser errors detected during crawling")
-        recommendations.append("  → HTML structure may have changed")
-        recommendations.append("  → Update CSS selectors or XPath expressions")
-    
-    if not date_patterns:
-        recommendations.append("⚠ No date filtering detected in logs")
-        recommendations.append("  → Date filtering logic may not be working")
-        recommendations.append("  → Check if date extraction from posts is functional")
-    
-    if recommendations:
-        for rec in recommendations:
-            print(rec)
-    else:
-        print("✓ No obvious issues detected from log analysis")
-    
-    print("\nNext steps:")
-    print("1. Verify blog post exists at staging.awseuccontent.com")
-    print("2. Check crawler environment variables for date filters")
-    print("3. Review category/URL pattern matching configuration")
-    print("4. Manually test crawler with target URL if possible")
-    print("5. Check if RSS feed includes the new post")
-    print("6. Verify staging environment is accessible from Lambda")
-    print("=" * 80)
-
-def main():
-    # Check crawler configuration first
-    check_crawler_configuration()
-    
-    print("\n" + "=" * 80)
-    print("ANALYZING CLOUDWATCH LOGS")
-    print("=" * 80)
-    
-    try:
-        # Try last 5 minutes first
-        response = logs.filter_log_events(
-            logGroupName='/aws/lambda/aws-blog-crawler',
-            startTime=int((datetime.now() - timedelta(minutes=5)).timestamp() * 1000)
-        )
-        
-        if response['events']:
-            analyze_log_events(response['events'])
-        else:
-            print("\nNo logs found in last 5 minutes")
-            print("Checking last 30 minutes...")
-            
-            response = logs.filter_log_events(
-                logGroupName='/aws/lambda/aws-blog-crawler',
-                startTime=int((datetime.now() - timedelta(minutes=30)).timestamp() * 1000)
-            )
-            
-            if response['events']:
-                # Show last 150 events for comprehensive investigation
-                analyze_log_events(response['events'][-150:])
-            else:
-                print("No logs found in last 30 minutes either")
-                print("\nTroubleshooting tips:")
-                print("1. Verify the Lambda function name is 'aws-blog-crawler'")
-                print("2. Check if crawler has been invoked recently")
-                print("3. Verify IAM permissions to read CloudWatch Logs")
-                print("4. Try manually invoking the crawler Lambda function")
-                print("5. Check CloudWatch Logs retention settings")
-                
-    except logs.exceptions.ResourceNotFoundException:
-        print(f"Error: Log group '/aws/lambda/aws-blog-crawler' not found")
-        print("\nPossible causes:")
-        print("- Lambda function name is incorrect")
+    rss_feeds, feed_errors

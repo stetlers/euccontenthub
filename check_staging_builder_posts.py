@@ -2,6 +2,9 @@
 import boto3
 from datetime import datetime, timedelta
 import time
+import requests
+from bs4 import BeautifulSoup
+import feedparser
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('aws-blog-posts-staging')
@@ -27,6 +30,58 @@ try:
         print(f"  Target URL: {target_url}")
         print(f"  Expected date: March 2, 2026")
         print()
+        
+        # ENHANCED: Attempt to fetch the post directly from the web to verify it exists
+        print("  Attempting to fetch post directly from AWS blog...")
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            web_response = requests.get(target_url, headers=headers, timeout=10)
+            
+            if web_response.status_code == 200:
+                soup = BeautifulSoup(web_response.content, 'html.parser')
+                
+                # Extract metadata to verify post exists and check date
+                title_tag = soup.find('h1') or soup.find('title')
+                date_meta = soup.find('meta', {'property': 'article:published_time'}) or \
+                           soup.find('meta', {'name': 'publishdate'}) or \
+                           soup.find('time')
+                
+                if title_tag:
+                    print(f"  ✓ Post EXISTS on web: {title_tag.get_text().strip()[:60]}...")
+                    
+                    if date_meta:
+                        date_content = date_meta.get('content') or date_meta.get('datetime') or date_meta.get_text()
+                        print(f"  ✓ Published date found: {date_content}")
+                        
+                        # Parse the date to check if it matches expected date
+                        try:
+                            if 'T' in str(date_content):
+                                parsed_date = datetime.fromisoformat(str(date_content).replace('Z', '+00:00'))
+                            else:
+                                parsed_date = datetime.strptime(str(date_content)[:10], '%Y-%m-%d')
+                            
+                            if parsed_date.strftime('%Y-%m-%d') == '2026-03-02':
+                                print("  ✓ Date matches expected: 2026-03-02")
+                            else:
+                                print(f"  ⚠ Date mismatch: Expected 2026-03-02, found {parsed_date.strftime('%Y-%m-%d')}")
+                        except Exception as e:
+                            print(f"  ⚠ Could not parse date: {e}")
+                    else:
+                        print("  ⚠ No date metadata found on page")
+                    
+                    print("  ✗ ISSUE: Post exists on web but NOT in database - crawler not detecting it")
+                else:
+                    print("  ⚠ Could not extract title from page")
+            elif web_response.status_code == 404:
+                print(f"  ✗ Post returns 404 - may not be published yet")
+            else:
+                print(f"  ⚠ Unexpected status code: {web_response.status_code}")
+        except requests.exceptions.RequestException as e:
+            print(f"  ⚠ Could not fetch post from web: {str(e)}")
+        print()
+        
 except Exception as e:
     print(f"✗ Error checking for specific post: {str(e)}\n")
 
@@ -65,7 +120,7 @@ try:
         print(f"   Last crawled: {post.get('last_crawled', 'Never')}")
         print()
     
-    # Analyze date range to detect date filtering issues
+    # ENHANCED: Analyze date range to detect date filtering issues
     print("\nDATE FILTERING ANALYSIS:")
     print("=" * 80)
     if das_posts:
@@ -82,6 +137,28 @@ try:
             recent_posts = [p for p in das_posts if p.get('date', '') >= '2026-02-01']
             print(f"Posts since 2026-02-01: {len(recent_posts)}")
             
+            # ENHANCED: Check for date gaps that might indicate filtering issues
+            if dates:
+                dates_sorted = sorted(set(d[:10] for d in dates if len(d) >= 10))
+                
+                # Detect gaps of more than 30 days
+                date_gaps = []
+                for i in range(len(dates_sorted) - 1):
+                    try:
+                        date1 = datetime.strptime(dates_sorted[i], '%Y-%m-%d')
+                        date2 = datetime.strptime(dates_sorted[i + 1], '%Y-%m-%d')
+                        gap = (date1 - date2).days
+                        if gap > 30:
+                            date_gaps.append((dates_sorted[i + 1], dates_sorted[i], gap))
+                    except:
+                        continue
+                
+                if date_gaps:
+                    print(f"\n⚠ DATE GAPS DETECTED (>30 days):")
+                    for start, end, days in date_gaps[:5]:
+                        print(f"  Gap from {start} to {end}: {days} days")
+                    print(f"  This may indicate date filtering or crawler execution issues")
+            
             # Display date distribution
             date_counts = {}
             for post in das_posts:
@@ -93,6 +170,12 @@ try:
             print("\nPosts by month (most recent 6 months):")
             for month in sorted(date_counts.keys(), reverse=True)[:6]:
                 print(f"  {month}: {date_counts[month]} posts")
+                
+            # ENHANCED: Check if March 2026 has abnormally low post count
+            if '2026-03' in date_counts:
+                avg_count = sum(date_counts.values()) / len(date_counts)
+                if date_counts['2026-03'] < avg_count * 0.5:
+                    print(f"  ⚠ March 2026 has unusually low post count compared to average ({avg_count:.1f})")
         else:
             print("No valid dates found in posts")
     else:
@@ -102,6 +185,83 @@ try:
     
 except Exception as e:
     print(f"Error scanning desktop-and-application-streaming posts: {str(e)}\n")
+
+# ENHANCED: Check RSS feed directly to verify crawler source
+print("\nRSS FEED VALIDATION:")
+print("=" * 80)
+try:
+    rss_url = 'https://aws.amazon.com/blogs/desktop-and-application-streaming/feed/'
+    print(f"Fetching RSS feed: {rss_url}")
+    
+    feed = feedparser.parse(rss_url)
+    
+    if feed.entries:
+        print(f"✓ RSS feed accessible with {len(feed.entries)} entries\n")
+        
+        # Check if target post is in RSS feed
+        target_in_feed = False
+        march_2_posts = []
+        
+        for entry in feed.entries[:20]:  # Check first 20 entries
+            entry_url = entry.get('link', '')
+            entry_date = entry.get('published', '') or entry.get('updated', '')
+            
+            if entry_url == target_url:
+                target_in_feed = True
+                print(f"✓ TARGET POST FOUND IN RSS FEED:")
+                print(f"  Title: {entry.get('title', 'N/A')}")
+                print(f"  Published: {entry_date}")
+                print(f"  URL: {entry_url}")
+                print(f"  ✗ ISSUE: Post in RSS but not in database - crawler parsing issue\n")
+            
+            # Check for any March 2, 2026 posts
+            if entry_date:
+                try:
+                    parsed_date = None
+                    if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                        parsed_date = datetime(*entry.published_parsed[:6])
+                    elif hasattr(entry, 'updated_parsed') and entry.updated_parsed:
+                        parsed_date = datetime(*entry.updated_parsed[:6])
+                    
+                    if parsed_date and parsed_date.strftime('%Y-%m-%d') == '2026-03-02':
+                        march_2_posts.append({
+                            'title': entry.get('title', 'N/A'),
+                            'url': entry.get('link', 'N/A'),
+                            'date': entry_date
+                        })
+                except:
+                    pass
+        
+        if not target_in_feed:
+            print(f"✗ Target post NOT found in RSS feed (checked first 20 entries)")
+            print(f"  This may indicate the post is not yet published or is older than recent entries\n")
+        
+        if march_2_posts:
+            print(f"Posts from March 2, 2026 in RSS feed: {len(march_2_posts)}")
+            for post in march_2_posts:
+                print(f"  - {post['title'][:60]}...")
+                print(f"    {post['url']}")
+            print()
+        
+        # Show most recent entries from feed
+        print("Most recent RSS feed entries (first 5):")
+        for i, entry in enumerate(feed.entries[:5], 1):
+            entry_date = entry.get('published', '') or entry.get('updated', '')
+            print(f"{i}. {entry.get('title', 'No title')[:60]}...")
+            print(f"   Date: {entry_date}")
+            print(f"   URL: {entry.get('link', 'N/A')[:70]}...")
+            print()
+            
+    else:
+        print(f"✗ RSS feed returned no entries or is not accessible")
+        print(f"  Feed status: {feed.get('status', 'unknown')}")
+        if feed.get('bozo'):
+            print(f"  Feed error: {feed.get('bozo_exception', 'unknown')}")
+        print(f"  ✗ CRITICAL: Crawler cannot function without RSS feed access\n")
+    
+except Exception as e:
+    print(f"✗ Error fetching RSS feed: {str(e)}")
+    print(f"  This may indicate network issues or RSS feed changes\n")
 
 # Check for URL pattern variations that might be missed
 print("\nURL PATTERN DETECTION ANALYSIS:")
@@ -113,7 +273,8 @@ try:
         'workspaces-graphics',
         'graphics-g6',
         'g6-gr6-g6f',
-        'bundles'
+        'bundles',
+        'launches-graphics'  # Added pattern from target URL
     ]
     
     print("Checking for posts containing key terms in URL:")
@@ -158,96 +319,3 @@ try:
     all_posts = response['Items']
     
     while 'LastEvaluatedKey' in response:
-        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-        all_posts.extend(response['Items'])
-    
-    # Analyze crawl timestamps
-    crawl_times = [p.get('last_crawled', '') for p in all_posts if p.get('last_crawled')]
-    
-    if crawl_times:
-        crawl_times.sort(reverse=True)
-        print(f"Total posts with crawl timestamps: {len(crawl_times)}")
-        print(f"Most recent crawl: {crawl_times[0] if crawl_times else 'Never'}")
-        print(f"Oldest crawl: {crawl_times[-1] if crawl_times else 'Never'}")
-        
-        # Check distribution of recent crawls
-        now = datetime.utcnow()
-        last_24h = (now - timedelta(hours=24)).isoformat()
-        last_week = (now - timedelta(days=7)).isoformat()
-        
-        crawled_24h = [t for t in crawl_times if t >= last_24h]
-        crawled_week = [t for t in crawl_times if t >= last_week]
-        
-        print(f"\nPosts crawled in last 24 hours: {len(crawled_24h)}")
-        print(f"Posts crawled in last 7 days: {len(crawled_week)}")
-        
-        # Check if desktop-and-application-streaming blog was recently crawled
-        das_crawled = [p for p in das_posts if p.get('last_crawled', '') >= last_24h]
-        print(f"Desktop/App Streaming posts crawled in last 24h: {len(das_crawled)}")
-    else:
-        print("No crawl timestamps found - crawler may not be running")
-    
-    print()
-    
-except Exception as e:
-    print(f"Error in crawler execution analysis: {str(e)}\n")
-
-# Get Builder.AWS posts
-print("\nChecking Builder.AWS posts in staging...\n")
-try:
-    response = table.scan(
-        FilterExpression='#src = :builder',
-        ExpressionAttributeNames={'#src': 'source'},
-        ExpressionAttributeValues={':builder': 'builder.aws.com'}
-    )
-
-    builder_posts = response['Items']
-
-    # Handle pagination
-    while 'LastEvaluatedKey' in response:
-        response = table.scan(
-            FilterExpression='#src = :builder',
-            ExpressionAttributeNames={'#src': 'source'},
-            ExpressionAttributeValues={':builder': 'builder.aws.com'},
-            ExclusiveStartKey=response['LastEvaluatedKey']
-        )
-        builder_posts.extend(response['Items'])
-
-    print(f"Total Builder.AWS posts: {len(builder_posts)}\n")
-
-    # Check for issues
-    missing_authors = [p for p in builder_posts if p.get('authors') == 'AWS Builder Community']
-    missing_summaries = [p for p in builder_posts if not p.get('summary') or p.get('summary') == '']
-
-    print("CRITICAL ISSUES:")
-    print("=" * 80)
-    print(f"Posts with generic 'AWS Builder Community' author: {len(missing_authors)}")
-    print(f"Posts without summaries: {len(missing_summaries)}")
-
-    print("\nSample posts with generic author (first 5):")
-    for i, post in enumerate(missing_authors[:5], 1):
-        print(f"{i}. {post.get('title', 'No title')[:60]}...")
-        print(f"   Author: {post.get('authors')}")
-        print(f"   Last crawled: {post.get('last_crawled', 'Never')}")
-        print(f"   Has summary: {'Yes' if post.get('summary') else 'No'}")
-        print()
-
-except Exception as e:
-    print(f"Error scanning Builder.AWS posts: {str(e)}\n")
-
-# Summary and recommendations
-print("\nDIAGNOSTIC SUMMARY:")
-print("=" * 80)
-print("The following areas should be investigated in the crawler code:")
-print("1. Date filtering logic - verify posts from March 2026 are not being filtered out")
-print("2. URL detection patterns - ensure all AWS blog post URLs are being captured")
-print("3. Crawler execution frequency - check if crawler is running on schedule")
-print("4. Scraping patterns - verify HTML parsing is working for new blog post formats")
-print("5. Error handling - check crawler logs for any failures or exceptions")
-print("\nRecommended next steps:")
-print("- Review crawler Lambda function logs in CloudWatch")
-print("- Verify RSS feed parsing for desktop-and-application-streaming blog")
-print("- Test crawler manually against the target URL")
-print("- Check for any rate limiting or access issues with aws.amazon.com")
-print()
-```

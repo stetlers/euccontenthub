@@ -13,7 +13,7 @@ log_group = '/aws/lambda/aws-blog-crawler'
 # Target blog post details
 TARGET_URL = 'https://aws.amazon.com/blogs/desktop-and-application-streaming/amazon-workspaces-launches-graphics-g6-gr6-and-g6f-bundles/'
 TARGET_DATE = '2026-03-02'
-TARGET_DATE_VARIATIONS = ['2026-03-02', '2026/03/02', 'march 2, 2026', 'march 2nd, 2026', '03/02/2026', '03-02-2026']
+TARGET_DATE_VARIATIONS = ['2026-03-02', '2026/03/02', 'march 2, 2026', 'march 2nd, 2026', '03/02/2026', '03-02-2026', 'mar 2, 2026', '2-mar-2026', '2 march 2026']
 BLOG_CATEGORY = 'desktop-and-application-streaming'
 
 print("Investigating staging crawler for Amazon WorkSpaces blog post...")
@@ -50,6 +50,16 @@ try:
     scraping_pattern_info = []
     rss_feed_entries = []
     date_range_configs = []
+    
+    # Enhanced tracking for new diagnostics
+    date_parsing_errors = []
+    url_metadata_issues = []
+    blog_post_skipped = []
+    date_comparison_logs = []
+    feed_parsing_logs = []
+    html_structure_logs = []
+    content_extraction_logs = []
+    post_validation_logs = []
     
     for stream in streams['logStreams']:
         stream_name = stream['logStreamName']
@@ -111,17 +121,59 @@ try:
                     date_filter_info.append(message)
                     print(f"→ Target date mention: {message}")
                 
+                # NEW: Date parsing error detection
+                if any(keyword in message_lower for keyword in ['date parse', 'date parsing', 'parse date', 'invalid date', 'date format', 'date conversion']):
+                    date_parsing_errors.append(message)
+                    if 'error' in message_lower or 'fail' in message_lower:
+                        print(f"⚠ Date parsing error: {message}")
+                
+                # NEW: Date comparison logging
+                if any(keyword in message_lower for keyword in ['date comparison', 'comparing dates', 'date check', 'date older than', 'date newer than', 'within date range']):
+                    date_comparison_logs.append(message)
+                    if 'workspaces' in message_lower or '2026-03' in message or 'march 2026' in message_lower:
+                        print(f"→ Date comparison: {message}")
+                
                 # Enhanced URL detection analysis
-                if any(keyword in message_lower for keyword in ['url detected', 'url found', 'discovering url', 'url pattern', 'url match']):
+                if any(keyword in message_lower for keyword in ['url detected', 'url found', 'discovering url', 'url pattern', 'url match', 'discovered url']):
                     url_detection_info.append(message)
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ URL detection: {message}")
+                
+                # NEW: URL metadata parsing issues
+                if any(keyword in message_lower for keyword in ['metadata', 'meta tag', 'og:published', 'article:published', 'pubdate', 'publish date']):
+                    url_metadata_issues.append(message)
+                    if 'workspaces' in message_lower or 'error' in message_lower or 'missing' in message_lower:
+                        print(f"→ Metadata parsing: {message}")
                 
                 # Enhanced scraping pattern analysis
                 if any(keyword in message_lower for keyword in ['scraping', 'parsing', 'extracting', 'html pattern', 'css selector', 'xpath']):
                     scraping_pattern_info.append(message)
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
                         print(f"→ Scraping pattern: {message}")
+                
+                # NEW: Feed parsing logs
+                if any(keyword in message_lower for keyword in ['feed parsing', 'parsing feed', 'feed entry', 'feed item', 'rss entry', 'atom entry']):
+                    feed_parsing_logs.append(message)
+                    if BLOG_CATEGORY in message_lower or 'workspaces' in message_lower:
+                        print(f"→ Feed parsing: {message}")
+                
+                # NEW: HTML structure analysis
+                if any(keyword in message_lower for keyword in ['html structure', 'dom parsing', 'element not found', 'selector failed', 'missing element']):
+                    html_structure_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
+                        print(f"→ HTML structure: {message}")
+                
+                # NEW: Content extraction logging
+                if any(keyword in message_lower for keyword in ['extracting content', 'content extracted', 'extraction failed', 'title extracted', 'date extracted']):
+                    content_extraction_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
+                        print(f"→ Content extraction: {message}")
+                
+                # NEW: Post validation logging
+                if any(keyword in message_lower for keyword in ['validating post', 'post validation', 'validation failed', 'validation passed', 'post valid', 'post invalid']):
+                    post_validation_logs.append(message)
+                    if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower:
+                        print(f"→ Post validation: {message}")
                 
                 # Check for RSS feed processing
                 if 'rss' in message_lower or 'feed' in message_lower:
@@ -151,10 +203,11 @@ try:
                     if BLOG_CATEGORY in message_lower or 'workspaces' in message_lower:
                         crawl_errors.append(message)
                 
-                # Check for skipped or filtered posts
-                if any(keyword in message_lower for keyword in ['skipped', 'filtered', 'excluded', 'ignored', 'not processing']):
+                # NEW: Enhanced detection for skipped or filtered posts
+                if any(keyword in message_lower for keyword in ['skipped', 'filtered', 'excluded', 'ignored', 'not processing', 'rejected', 'skipping']):
                     if 'workspaces' in message_lower or BLOG_CATEGORY in message_lower or any(date_var in message_lower for date_var in [d.lower() for d in TARGET_DATE_VARIATIONS]):
-                        print(f"⚠ Post may be filtered: {message}")
+                        blog_post_skipped.append(message)
+                        print(f"⚠ Post may be filtered/skipped: {message}")
                         date_filter_info.append(message)
         
         except Exception as stream_error:
@@ -185,6 +238,22 @@ try:
     else:
         print("\n⚠ NO DATE FILTERING INFO FOUND - May indicate missing date filter logging")
     
+    # NEW: Report date parsing errors
+    if date_parsing_errors:
+        print(f"\n⚠ DATE PARSING ERRORS DETECTED ({len(date_parsing_errors)} entries):")
+        for error in date_parsing_errors[-10:]:
+            print(f"  - {error}")
+    else:
+        print("\n→ No date parsing errors detected")
+    
+    # NEW: Report date comparison logs
+    if date_comparison_logs:
+        print(f"\n→ DATE COMPARISON LOGS ({len(date_comparison_logs)} entries):")
+        for log in date_comparison_logs[-15:]:
+            print(f"  - {log}")
+    else:
+        print("\n⚠ NO DATE COMPARISON LOGS - Date filtering may not be logging comparisons")
+    
     # Report URL detection analysis
     if url_detection_info:
         print(f"\n→ URL DETECTION ANALYSIS ({len(url_detection_info)} entries):")
@@ -192,6 +261,14 @@ try:
             print(f"  - {info}")
     else:
         print("\n⚠ NO URL DETECTION INFO FOUND - May indicate missing URL detection logging")
+    
+    # NEW: Report URL metadata issues
+    if url_metadata_issues:
+        print(f"\n→ URL METADATA PARSING ({len(url_metadata_issues)} entries):")
+        for issue in url_metadata_issues[-10:]:
+            print(f"  - {issue}")
+    else:
+        print("\n⚠ NO URL METADATA LOGS - Metadata extraction may not be logged")
     
     # Report scraping pattern analysis
     if scraping_pattern_info:
@@ -201,129 +278,37 @@ try:
     else:
         print("\n⚠ NO SCRAPING PATTERN INFO FOUND - May indicate missing scraping logging")
     
-    # Report RSS feed analysis
-    if rss_feed_entries:
-        print(f"\n→ RSS FEED ANALYSIS ({len(rss_feed_entries)} entries):")
-        for entry in rss_feed_entries[-10:]:  # Last 10 entries
-            print(f"  - {entry}")
+    # NEW: Report feed parsing logs
+    if feed_parsing_logs:
+        print(f"\n→ FEED PARSING LOGS ({len(feed_parsing_logs)} entries):")
+        for log in feed_parsing_logs[-10:]:
+            print(f"  - {log}")
     else:
-        print("\n⚠ NO RSS FEED ENTRIES FOUND - RSS may not be processing this category")
+        print("\n⚠ NO FEED PARSING LOGS - Feed processing may not be logged")
     
-    # Report date range configuration
-    if date_range_configs:
-        print(f"\n→ DATE RANGE CONFIGURATION ({len(date_range_configs)} entries):")
-        for config in date_range_configs[-10:]:  # Last 10 entries
-            print(f"  - {config}")
+    # NEW: Report HTML structure logs
+    if html_structure_logs:
+        print(f"\n→ HTML STRUCTURE ANALYSIS ({len(html_structure_logs)} entries):")
+        for log in html_structure_logs[-10:]:
+            print(f"  - {log}")
+    
+    # NEW: Report content extraction logs
+    if content_extraction_logs:
+        print(f"\n→ CONTENT EXTRACTION LOGS ({len(content_extraction_logs)} entries):")
+        for log in content_extraction_logs[-10:]:
+            print(f"  - {log}")
     else:
-        print("\n⚠ NO DATE RANGE CONFIG FOUND - May use default settings")
+        print("\n⚠ NO CONTENT EXTRACTION LOGS - Content extraction may not be logged")
     
-    # Report staging issues
-    if staging_issues:
-        print(f"\n⚠ STAGING ISSUES DETECTED ({len(staging_issues)}):")
-        for issue in staging_issues[-10:]:  # Last 10 issues
-            print(f"  - {issue}")
+    # NEW: Report post validation logs
+    if post_validation_logs:
+        print(f"\n→ POST VALIDATION LOGS ({len(post_validation_logs)} entries):")
+        for log in post_validation_logs[-10:]:
+            print(f"  - {log}")
+    else:
+        print("\n⚠ NO POST VALIDATION LOGS - Post validation may not be logged")
     
-    # Report crawler errors
-    if crawl_errors:
-        print(f"\n⚠ CRAWLER ERRORS DETECTED ({len(crawl_errors)}):")
-        for error in crawl_errors[-10:]:  # Last 10 errors
-            print(f"  - {error}")
-    
-    # Report URL patterns found
-    if url_patterns_found:
-        print(f"\n→ WorkSpaces-related URLs found ({len(url_patterns_found)}):")
-        for url_msg in url_patterns_found[-5:]:  # Last 5
-            print(f"  - {url_msg}")
-    
-    # Recommendations
-    print("\n" + "=" * 80)
-    print("RECOMMENDATIONS")
-    print("=" * 80)
-    
-    if not found_target_post:
-        print("PRIMARY ISSUES TO INVESTIGATE:")
-        print("1. Verify the blog post exists and is accessible at the URL")
-        print("   - Check: curl -I " + TARGET_URL)
-        print("   - Verify publish date is March 2, 2026")
-        
-        if not date_filter_info:
-            print("\n2. DATE FILTERING ISSUE (CRITICAL):")
-            print("   - No date filter logs found - crawler may not be checking dates correctly")
-            print("   - Check crawler's date extraction logic from blog posts")
-            print("   - Verify date parsing handles format: 'March 2, 2026'")
-            print("   - Add logging to date filtering logic")
-        else:
-            print("\n2. DATE FILTERING:")
-            print("   - Review date filter logs above for cutoff dates")
-            print("   - Ensure date range includes March 2, 2026")
-            print("   - Check if crawler has a 'max age' setting that excludes this date")
-        
-        if not url_detection_info:
-            print("\n3. URL DETECTION ISSUE (CRITICAL):")
-            print("   - No URL detection logs found - crawler may not be discovering new URLs")
-            print("   - Check RSS feed parsing for this blog category")
-            print("   - Verify sitemap.xml includes the target URL")
-            print("   - Add logging to URL discovery logic")
-        else:
-            print("\n3. URL DETECTION:")
-            print("   - Review URL detection logs above")
-            print("   - Check if URL pattern matches for 'amazon-workspaces-launches-graphics-g6'")
-        
-        if not scraping_pattern_info:
-            print("\n4. SCRAPING PATTERN ISSUE (CRITICAL):")
-            print("   - No scraping pattern logs found - crawler may not be extracting content")
-            print("   - Verify HTML structure of target blog post")
-            print("   - Check CSS selectors/XPath patterns for blog post elements")
-            print("   - Add logging to content extraction logic")
-        else:
-            print("\n4. SCRAPING PATTERNS:")
-            print("   - Review scraping pattern logs above")
-            print("   - Test scraping patterns against target URL")
-        
-        print("\n5. STAGING ENVIRONMENT:")
-        print("   - Verify staging.awseuccontent.com has the latest content")
-        print("   - Check content synchronization from production")
-        print("   - Ensure staging environment is accessible from crawler")
-        
-        if not rss_feed_entries:
-            print("\n6. RSS FEED ISSUE:")
-            print("   - No RSS entries found for this category")
-            print("   - Check if RSS feed includes 'desktop-and-application-streaming'")
-            print("   - Verify RSS feed URL is correct and accessible")
-            print("   - Check if RSS feed has entries dated March 2, 2026")
-    
-    if not found_category:
-        print("\n7. BLOG CATEGORY CONFIGURATION:")
-        print("   - Add 'desktop-and-application-streaming' to crawler configuration")
-        print("   - Verify blog category whitelist/blacklist settings")
-        print("   - Check if category URL routing is correct")
-    
-    if staging_issues:
-        print("\n8. STAGING ENVIRONMENT FIXES:")
-        print("   - Review staging environment connectivity and authentication")
-        print("   - Check staging content synchronization from production")
-        print("   - Verify SSL/TLS certificates for staging domain")
-    
-    if crawl_errors:
-        print("\n9. CRAWLER ERROR FIXES:")
-        print("   - Review and fix crawler errors for this category")
-        print("   - Check rate limiting and timeout configurations")
-        print("   - Increase error logging verbosity")
-    
-    print("\n" + "=" * 80)
-    print("IMMEDIATE ACTIONS")
-    print("=" * 80)
-    print("1. Add enhanced logging to crawler for:")
-    print("   - Date filtering logic (log every date comparison)")
-    print("   - URL detection (log every URL discovered and filtered)")
-    print("   - Scraping patterns (log extraction success/failure)")
-    print("2. Run crawler in debug mode for this specific blog category")
-    print("3. Manually test the target URL with crawler's scraping logic")
-    print("4. Verify date range configuration allows posts from March 2026")
-    print("5. Check if crawler has processed any posts from March 2026")
-
-except Exception as e:
-    print(f"ERROR: {e}")
-    import traceback
-    traceback.print_exc()
-```
+    # NEW: Report blog post skipped entries
+    if blog_post_skipped:
+        print(f"\n⚠ BLOG POSTS SKIPPED/FILTERED ({len(blog_post_skipped)} entries):")
+        for entry
