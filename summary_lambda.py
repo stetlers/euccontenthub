@@ -21,6 +21,24 @@ def get_table_suffix():
     environment = os.environ.get('ENVIRONMENT', 'production')
     return '-staging' if environment == 'staging' else ''
 
+
+def resolve_environment(event, table_name):
+    """Resolve the environment for downstream alias selection.
+
+    Priority (Issue 3): explicit event 'environment' > inferred from the
+    table being operated on > this function's static ENVIRONMENT env var.
+
+    Inferring from table_name matters because upstream callers (the ECS
+    Selenium container) pass table_name but not 'environment'. Without this,
+    a staging run falls back to ENVIRONMENT=production and invokes the
+    :production classifier alias, so staging labels never refill.
+    """
+    if event and event.get('environment'):
+        return event['environment']
+    if table_name and table_name.endswith('-staging'):
+        return 'staging'
+    return os.environ.get('ENVIRONMENT', 'production')
+
 print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
 
 # Bedrock model to use
@@ -261,12 +279,11 @@ def lambda_handler(event, context):
             try:
                 lambda_client = boto3.client('lambda')
                 
-                # Determine environment from event or environment variable
-                if event and event.get('environment'):
-                    environment = event['environment']
-                else:
-                    environment = os.environ.get('ENVIRONMENT', 'production')
-                
+                # Determine environment for the classifier alias. Infer from the
+                # table when the caller didn't pass 'environment' (e.g. the ECS
+                # Selenium container), so a staging run uses :staging (Issue 3).
+                environment = resolve_environment(event, table_name)
+
                 function_name = f"aws-blog-classifier:{environment}"
                 
                 # Invoke classifier once for each post that got a summary
@@ -320,9 +337,13 @@ def lambda_handler(event, context):
                     print("  Auto-chaining: Invoking summary generator again...")
                     
                     lambda_client = boto3.client('lambda')
-                    environment = os.environ.get('ENVIRONMENT', 'production')
+                    # Use the environment+table this invocation is operating on,
+                    # NOT the static env / prod TABLE_NAME global. Otherwise a
+                    # staging run auto-chains into a summary against the PROD
+                    # table on the :production alias (cross-env write — Issue 3).
+                    environment = resolve_environment(event, table_name)
                     summary_function = f"aws-blog-summary-generator:{environment}"
-                    
+
                     # Invoke self with same parameters
                     lambda_client.invoke(
                         FunctionName=summary_function,
@@ -330,7 +351,8 @@ def lambda_handler(event, context):
                         Payload=json.dumps({
                             'batch_size': batch_size,
                             'force': False,
-                            'table_name': TABLE_NAME
+                            'table_name': table_name,
+                            'environment': environment
                         })
                     )
                     
