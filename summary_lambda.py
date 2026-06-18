@@ -5,8 +5,12 @@ Uses AWS Bedrock to generate AI summaries for blog posts
 
 import json
 import os
+import time
 import boto3
 from decimal import Decimal
+
+from euc_filter.ai_validator import ai_validate
+from euc_filter.config import get_relevance_threshold
 
 # Initialize clients
 dynamodb = boto3.resource('dynamodb')
@@ -162,6 +166,86 @@ def lambda_handler(event, context):
         # Use the specified table
         table = dynamodb.Table(table_name)
         
+        # --- Retroactive re-evaluation mode (Requirement 7) ---
+        if event and event.get('revalidate_existing'):
+            print("Revalidate existing posts mode activated")
+            threshold = get_relevance_threshold()
+            print(f"Active EUC relevance threshold: {threshold}")
+
+            total_evaluated = 0
+            total_flagged = 0
+            flagged_titles = []
+
+            scan_kwargs = {
+                'FilterExpression': 'attribute_exists(summary) AND summary <> :empty',
+                'ExpressionAttributeValues': {':empty': ''},
+            }
+
+            while True:
+                response = table.scan(**scan_kwargs)
+                posts = response.get('Items', [])
+
+                for post in posts:
+                    post_id = post.get('post_id')
+                    title = post.get('title', 'Untitled')
+                    url = post.get('url', '')
+                    content = post.get('content', '')
+                    summary = post.get('summary', '')
+
+                    ai_result = ai_validate(
+                        title=title,
+                        url=url,
+                        content_snippet=content[:500],
+                        summary_text=summary,
+                    )
+
+                    if ai_result.score is not None:
+                        flagged = ai_result.score < threshold
+                        table.update_item(
+                            Key={'post_id': post_id},
+                            UpdateExpression='SET relevance_score = :score, '
+                                            'ai_validation_result = :result, '
+                                            'ai_validation_explanation = :explanation, '
+                                            'flagged_irrelevant = :flagged',
+                            ExpressionAttributeValues={
+                                ':score': Decimal(str(ai_result.score)),
+                                ':result': 'flagged' if flagged else 'accepted',
+                                ':explanation': ai_result.explanation,
+                                ':flagged': flagged,
+                            },
+                        )
+                        if flagged:
+                            total_flagged += 1
+                            flagged_titles.append(title)
+                            print(f"  ⚠️  Flagged: {title} (score={ai_result.score})")
+                        else:
+                            print(f"  ✓ Accepted: {title} (score={ai_result.score})")
+                    else:
+                        print(f"  ⚠️  AI error for {post_id}, skipping")
+
+                    total_evaluated += 1
+                    time.sleep(0.2)
+
+                if 'LastEvaluatedKey' not in response:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+            print(f"\nRe-evaluation complete:")
+            print(f"  Total re-evaluated: {total_evaluated}")
+            print(f"  Total flagged: {total_flagged}")
+            if flagged_titles:
+                print(f"  Flagged titles: {flagged_titles}")
+
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'Re-evaluation completed',
+                    'total_evaluated': total_evaluated,
+                    'total_flagged': total_flagged,
+                    'flagged_titles': flagged_titles,
+                }),
+            }
+        
         print(f"Starting summary generation")
         print(f"DEBUG: Extracted post_id={post_id}, batch_size={batch_size}, force={force}")
         print(f"Batch size: {batch_size}")
@@ -170,6 +254,13 @@ def lambda_handler(event, context):
         posts_processed = 0
         summaries_generated = 0
         errors = 0
+        ai_accepted = 0
+        ai_flagged = 0
+        ai_errors = 0
+        
+        # Task 3.3: Log active relevance threshold at start of batch
+        threshold = get_relevance_threshold()
+        print(f"Active EUC relevance threshold: {threshold}")
         
         if post_id:
             # Process single post - fetch full post data from DynamoDB
@@ -253,6 +344,46 @@ def lambda_handler(event, context):
                 summarized_post_ids.append(current_post_id)
                 print(f"  ✓ Summary generated: {summary[:80]}...")
                 
+                # AI relevance scoring (after summary save, before classifier)
+                url = post.get('url', '')
+                ai_result = ai_validate(
+                    title=title,
+                    url=url,
+                    content_snippet=content[:500],
+                    summary_text=summary
+                )
+                
+                if ai_result.score is not None:
+                    flagged = ai_result.score < threshold
+                    table.update_item(
+                        Key={'post_id': current_post_id},
+                        UpdateExpression='SET relevance_score = :score, '
+                                        'ai_validation_result = :result, '
+                                        'ai_validation_explanation = :explanation, '
+                                        'flagged_irrelevant = :flagged',
+                        ExpressionAttributeValues={
+                            ':score': Decimal(str(ai_result.score)),
+                            ':result': 'flagged' if flagged else 'accepted',
+                            ':explanation': ai_result.explanation,
+                            ':flagged': flagged,
+                        }
+                    )
+                    if flagged:
+                        ai_flagged += 1
+                        print(f"  ⚠️  AI flagged: url={url} title={title} score={ai_result.score} explanation={ai_result.explanation}")
+                    else:
+                        ai_accepted += 1
+                        print(f"  ✓ AI accepted: url={url} score={ai_result.score}")
+                else:
+                    # AI error — log warning, don't flag
+                    table.update_item(
+                        Key={'post_id': current_post_id},
+                        UpdateExpression='SET ai_validation_result = :result',
+                        ExpressionAttributeValues={':result': 'error'}
+                    )
+                    ai_errors += 1
+                    print(f"  ⚠️  AI validation error for {current_post_id}, continuing without flagging")
+                
             except Exception as e:
                 print(f"  ✗ Error processing {current_post_id}: {e}")
                 errors += 1
@@ -262,13 +393,19 @@ def lambda_handler(event, context):
             'posts_processed': posts_processed,
             'summaries_generated': summaries_generated,
             'errors': errors,
-            'batch_size': batch_size
+            'batch_size': batch_size,
+            'ai_accepted': ai_accepted,
+            'ai_flagged': ai_flagged,
+            'ai_errors': ai_errors
         }
         
         print(f"\nSummary Generation Complete:")
         print(f"  Posts processed: {posts_processed}")
         print(f"  Summaries generated: {summaries_generated}")
         print(f"  Errors: {errors}")
+        print(f"  AI accepted: {ai_accepted}")
+        print(f"  AI flagged: {ai_flagged}")
+        print(f"  AI errors: {ai_errors}")
         print(f"  [AUTOCHAIN-V2-DEPLOYED]")  # Marker to verify deployment
         
         # Automatically invoke classifier Lambda for posts that got summaries
