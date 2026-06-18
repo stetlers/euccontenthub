@@ -160,5 +160,75 @@ def test_jwt_payload_swap_rejects():
     assert _rsa_pkcs1_v15_verify(n, e, forged_input, _b64url_decode(s)) is False
 
 
+# --- Tests: JWKS forced-refresh throttle (DoS hardening) ---
+#
+# Mirror of _get_jwks/_find_jwk's refresh logic (keep in sync with
+# lambda_function.py). The module binds boto3 at import, so we reimplement the
+# throttle here and drive it with a fake clock + fetch counter. The property
+# under test: a flood of unknown-kid lookups cannot force more than one
+# outbound JWKS fetch per throttle window.
+
+_JWKS_TTL_SECONDS = 3600
+_JWKS_MIN_FORCED_REFRESH_SECONDS = 60
+
+
+class _FakeJwks:
+    def __init__(self, keys):
+        self.keys = list(keys)
+        self.fetches = 0
+        self.cache = {'keys': None, 'fetched_at': 0, 'last_forced': 0}
+        self.now = 1000.0
+
+    def _get(self, force_refresh=False):
+        now = self.now
+        c = self.cache
+        forced = force_refresh and now - c['last_forced'] >= _JWKS_MIN_FORCED_REFRESH_SECONDS
+        if forced or c['keys'] is None or now - c['fetched_at'] > _JWKS_TTL_SECONDS:
+            if force_refresh:
+                c['last_forced'] = now
+            self.fetches += 1  # stands in for the urlopen call
+            c['keys'] = self.keys
+            c['fetched_at'] = now
+        return c['keys']
+
+    def find(self, kid):
+        for jwk in self._get():
+            if jwk.get('kid') == kid:
+                return jwk
+        for jwk in self._get(force_refresh=True):
+            if jwk.get('kid') == kid:
+                return jwk
+        return None
+
+
+def test_unknown_kid_flood_is_throttled():
+    j = _FakeJwks([{'kid': 'real'}])
+    # 500 lookups for a kid that does not exist, all within one window.
+    for _ in range(500):
+        assert j.find('bogus') is None
+    # First lookup primes the cache (1) + one forced refresh (1); every
+    # subsequent forced refresh is throttled away.
+    assert j.fetches == 2, j.fetches
+
+
+def test_forced_refresh_allowed_after_window():
+    j = _FakeJwks([{'kid': 'real'}])
+    assert j.find('bogus') is None
+    fetches_after_first = j.fetches
+    j.now += _JWKS_MIN_FORCED_REFRESH_SECONDS + 1
+    assert j.find('bogus') is None
+    # A new window elapsed, so exactly one more forced fetch is permitted.
+    assert j.fetches == fetches_after_first + 1, j.fetches
+
+
+def test_known_kid_after_rotation_still_resolves():
+    # Key rotation: 'new' kid is absent, then a forced refresh brings it in.
+    j = _FakeJwks([{'kid': 'old'}])
+    j.find('old')  # prime cache
+    j.keys = [{'kid': 'old'}, {'kid': 'new'}]  # Cognito rotated in a new key
+    j.now += _JWKS_MIN_FORCED_REFRESH_SECONDS + 1  # past the throttle window
+    assert j.find('new') == {'kid': 'new'}
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-v']))
