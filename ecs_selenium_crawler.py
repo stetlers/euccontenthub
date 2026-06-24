@@ -1,4 +1,3 @@
-```python
 """
 Builder.AWS Selenium Crawler for ECS/Fargate
 Fetches real author names and content from Builder.AWS pages using Selenium/Chrome
@@ -8,9 +7,10 @@ import json
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
 import boto3
-from datetime import datetime, timezone
-from dateutil import parser as date_parser
+import requests
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -26,44 +26,26 @@ POST_IDS_STR = os.environ.get('POST_IDS', '')
 # Parse post IDs
 POST_IDS = [pid.strip() for pid in POST_IDS_STR.split(',') if pid.strip()]
 
+# When POST_IDS is empty the crawler runs in DISCOVERY mode: it reads the
+# builder.aws sitemap, filters to EUC-related posts, and creates/updates them
+# (full title + content), exactly like the Lambda crawler but without the
+# single-process Chrome crashes (Fargate runs normal multi-process Chrome).
+
+# SPA shell titles to reject (the "AWS Builder Center" incident): if the
+# rendered <h1> is the site name we fall back to the slug-derived title.
+SPA_SHELL_TITLES = {'aws builder center', 'builder.aws', 'builder.aws.com'}
+
+SITEMAP_INDEX_URL = 'https://builder.aws.com/sitemaps/sitemap.xml'
+SITEMAP_NS = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+EUC_KEYWORDS = [
+    'euc', 'end-user-computing', 'end user computing', 'workspaces', 'appstream',
+    'workspace', 'end user', 'desktop', 'virtual desktop', 'vdi', 'daas',
+]
+
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table(TABLE_NAME)
 lambda_client = boto3.client('lambda', region_name='us-east-1')
-
-# CloudWatch Logs client for detailed logging
-logs_client = boto3.client('logs', region_name='us-east-1')
-LOG_GROUP_NAME = '/ecs/selenium-crawler'
-
-
-def log_to_cloudwatch(message, level='INFO'):
-    """Send detailed logs to CloudWatch for investigation"""
-    try:
-        timestamp = int(time.time() * 1000)
-        log_stream_name = f"crawler-{datetime.now().strftime('%Y-%m-%d')}"
-        
-        # Create log stream if it doesn't exist
-        try:
-            logs_client.create_log_stream(
-                logGroupName=LOG_GROUP_NAME,
-                logStreamName=log_stream_name
-            )
-        except logs_client.exceptions.ResourceAlreadyExistsException:
-            pass
-        
-        # Put log event
-        logs_client.put_log_events(
-            logGroupName=LOG_GROUP_NAME,
-            logStreamName=log_stream_name,
-            logEvents=[
-                {
-                    'timestamp': timestamp,
-                    'message': f"[{level}] {message}"
-                }
-            ]
-        )
-    except Exception as e:
-        print(f"Warning: Could not log to CloudWatch: {e}")
 
 
 def setup_driver():
@@ -80,296 +62,505 @@ def setup_driver():
     # Connect to Chrome (running in same container via selenium/standalone-chrome)
     driver = webdriver.Chrome(options=chrome_options)
     driver.set_page_load_timeout(30)
-    
+
     return driver
 
 
-def is_aws_blog_post(url):
-    """
-    Check if URL is an AWS blog post (not Builder.AWS)
-    
-    Returns:
-        bool: True if it's an AWS blog post
-    """
-    if not url:
-        print(f"  DEBUG: URL is None or empty")
-        log_to_cloudwatch(f"URL check: URL is None or empty", 'DEBUG')
-        return False
-    
-    # Check for AWS blog patterns - including both production and staging
-    aws_blog_patterns = [
-        'aws.amazon.com/blogs/',
-        'staging.awseuccontent.com'
-    ]
-    
-    is_aws_blog = any(pattern in url for pattern in aws_blog_patterns)
-    
-    # Log URL classification
-    if is_aws_blog:
-        print(f"  DEBUG: URL classified as AWS blog: {url}")
-        log_to_cloudwatch(f"URL classified as AWS blog: {url}", 'DEBUG')
-    else:
-        print(f"  DEBUG: URL classified as non-AWS blog: {url}")
-        log_to_cloudwatch(f"URL classified as non-AWS blog: {url}", 'DEBUG')
-    
-    return is_aws_blog
+def extract_title_from_slug(url):
+    """Derive a human-ish title from the URL slug as a fallback."""
+    slug = url.rstrip('/').split('/')[-1]
+    words = slug.split('-')
+    out = []
+    for i, w in enumerate(words):
+        lw = w.lower()
+        if w.isupper() and len(w) <= 4:
+            out.append(w)
+        elif lw in ('ai', 'ml', 'api', 'aws', 'iam', 'ec2', 's3', 'vpc', 'euc', 'vdi'):
+            out.append(w.upper())
+        elif lw == 'appstream':
+            out.append('AppStream')
+        elif lw == 'workspaces':
+            out.append('WorkSpaces')
+        elif lw == 'daas':
+            out.append('DaaS')
+        elif w == '':
+            continue
+        else:
+            out.append(w.capitalize())
+    return ' '.join(out)
 
 
-def verify_url_accessibility(driver, url):
-    """
-    Verify that a URL is accessible and returns valid content
-    
-    Returns:
-        dict: {'accessible': bool, 'status_message': str, 'redirected_url': str}
-    """
-    print(f"  DEBUG: Verifying URL accessibility: {url}")
-    log_to_cloudwatch(f"Verifying URL accessibility: {url}", 'DEBUG')
-    
+def is_euc_related(url, title):
+    text = f"{url} {title}".lower()
+    return any(k in text for k in EUC_KEYWORDS)
+
+
+def get_article_sitemaps():
+    """Return the list of article sitemap URLs from the sitemap index."""
     try:
-        driver.get(url)
-        
-        # Wait for page to load
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        
-        time.sleep(2)
-        
-        page_title = driver.title
-        current_url = driver.current_url
-        
-        print(f"  DEBUG: Page loaded - Title: '{page_title}', URL: '{current_url}'")
-        log_to_cloudwatch(f"Page loaded - Title: '{page_title}', URL: '{current_url}'", 'DEBUG')
-        
-        # Check for error indicators
-        error_indicators = ['404', 'not found', 'page not found', 'error']
-        is_error = any(indicator in page_title.lower() for indicator in error_indicators)
-        
-        if is_error:
-            print(f"  WARNING: Page appears to be an error page (title: '{page_title}')")
-            log_to_cloudwatch(f"Error page detected - Title: '{page_title}', URL: {url}", 'WARNING')
-            return {
-                'accessible': False,
-                'status_message': f"Error page detected (title: '{page_title}')",
-                'redirected_url': current_url
-            }
-        
-        # Check if URL was redirected
-        if current_url != url:
-            print(f"  INFO: URL was redirected from {url} to {current_url}")
-            log_to_cloudwatch(f"URL redirected from {url} to {current_url}", 'INFO')
-        
-        # Check if page has content
-        body = driver.find_element(By.TAG_NAME, "body")
-        body_text = body.text.strip()
-        
-        if len(body_text) < 50:
-            print(f"  WARNING: Page has minimal content (length: {len(body_text)})")
-            log_to_cloudwatch(f"Minimal content detected (length: {len(body_text)}) for {url}", 'WARNING')
-            return {
-                'accessible': True,
-                'status_message': f"Page accessible but has minimal content (length: {len(body_text)})",
-                'redirected_url': current_url
-            }
-        
-        print(f"  DEBUG: URL is accessible with content (length: {len(body_text)})")
-        log_to_cloudwatch(f"URL is accessible with content (length: {len(body_text)})", 'DEBUG')
-        
-        return {
-            'accessible': True,
-            'status_message': 'Page accessible with content',
-            'redirected_url': current_url
-        }
-        
-    except TimeoutException:
-        print(f"  ERROR: Timeout while accessing URL: {url}")
-        log_to_cloudwatch(f"Timeout while accessing URL: {url}", 'ERROR')
-        return {
-            'accessible': False,
-            'status_message': 'Timeout while loading page',
-            'redirected_url': None
-        }
+        resp = requests.get(SITEMAP_INDEX_URL, timeout=30)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+        return [loc.text for loc in root.findall('.//ns:url/ns:loc', SITEMAP_NS)
+                if loc.text and '/sitemaps/articles/' in loc.text]
     except Exception as e:
-        print(f"  ERROR: Exception while verifying URL accessibility: {e}")
-        log_to_cloudwatch(f"Exception while verifying URL accessibility for {url}: {e}", 'ERROR')
-        return {
-            'accessible': False,
-            'status_message': f'Exception: {str(e)}',
-            'redirected_url': None
-        }
+        print(f"Error fetching sitemap index: {e}")
+        return []
 
 
-def check_staging_table_for_post(url, title_keywords=None):
+def discover_euc_urls():
+    """Discover all EUC-related (url, lastmod) pairs from the builder.aws sitemap.
+
+    Sorted by URL for stable, reproducible ordering across runs.
     """
-    Check staging DynamoDB table for any data related to the post
-    
-    Args:
-        url: URL to search for
-        title_keywords: Optional keywords from title to search for
+    urls = []
+    for sm in get_article_sitemaps():
+        try:
+            resp = requests.get(sm, timeout=30)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+            for u in root.findall('.//ns:url', SITEMAP_NS):
+                loc = u.find('ns:loc', SITEMAP_NS)
+                lastmod = u.find('ns:lastmod', SITEMAP_NS)
+                if loc is None or not loc.text:
+                    continue
+                url = loc.text
+                if is_euc_related(url, extract_title_from_slug(url)):
+                    urls.append((url, lastmod.text if lastmod is not None else ''))
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"  Error processing sitemap {sm}: {e}")
+            continue
+    # De-dup and sort for stable ordering.
+    return sorted(set(urls), key=lambda t: t[0])
+
+
+def extract_page_content(driver, url, max_retries=3):
+    """
+    Extract author and content from a Builder.AWS page
     
     Returns:
-        dict: Information about any found records
+        dict: {'authors': str, 'content': str} or None if extraction fails
     """
-    print(f"  DEBUG: Checking staging table for post: {url}")
-    log_to_cloudwatch(f"Checking staging table for post: {url}", 'DEBUG')
-    
-    results = {
-        'found': False,
-        'records': [],
-        'partial_matches': []
-    }
-    
-    try:
-        staging_table_name = TABLE_NAME.replace('-production', '-staging') if 'production' in TABLE_NAME else f"{TABLE_NAME}-staging"
-        staging_table = dynamodb.Table(staging_table_name)
-        
-        # Try to find exact URL match
+    for attempt in range(max_retries):
         try:
-            response = staging_table.scan(
-                FilterExpression='contains(#url, :url)',
-                ExpressionAttributeNames={'#url': 'url'},
-                ExpressionAttributeValues={':url': url}
-            )
-            
-            if response.get('Items'):
-                results['found'] = True
-                results['records'] = response['Items']
-                print(f"  INFO: Found {len(response['Items'])} records in staging table with URL: {url}")
-                log_to_cloudwatch(f"Found {len(response['Items'])} records in staging table with URL: {url}", 'INFO')
-        except Exception as e:
-            print(f"  WARNING: Error scanning staging table by URL: {e}")
-            log_to_cloudwatch(f"Error scanning staging table by URL: {e}", 'WARNING')
-        
-        # If title keywords provided, search by title
-        if title_keywords and not results['found']:
+            driver.get(url)
+
+            # Wait for the article heading to render (SPA), not just <body>.
             try:
-                for keyword in title_keywords:
-                    if len(keyword) < 4:  # Skip very short keywords
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "h1"))
+                )
+            except TimeoutException:
+                # Fall back to body presence; title will use the slug.
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+
+            # Give JavaScript time to render
+            time.sleep(2)
+
+            # Extract title from rendered <h1>, with shell-title guard + slug fallback.
+            title = ''
+            try:
+                h1_text = driver.find_element(By.TAG_NAME, "h1").text.strip()
+                if h1_text and h1_text.lower() not in SPA_SHELL_TITLES:
+                    title = h1_text
+            except NoSuchElementException:
+                pass
+            if not title:
+                title = extract_title_from_slug(url)
+                print(f"  Using slug-based title: {title}")
+
+            # Extract author name
+            authors = "AWS Builder Community"  # Default
+            try:
+                # Try multiple selectors for author
+                # Builder.AWS uses CSS modules with dynamic class names like _profile-name_xxxxx
+                author_selectors = [
+                    "//span[contains(@class, 'profile-name')]//span[contains(@class, 'ellipse-text')]",
+                    "//span[contains(@class, 'profile-name')]",
+                    "//span[contains(@class, '_profile-name')]",
+                    "//meta[@name='author']",
+                    "//span[contains(@class, 'author')]",
+                    "//div[contains(@class, 'author')]",
+                    "//a[contains(@class, 'author')]"
+                ]
+                
+                for selector in author_selectors:
+                    try:
+                        if selector.startswith("//meta"):
+                            author_elem = driver.find_element(By.XPATH, selector)
+                            authors = author_elem.get_attribute('content')
+                        else:
+                            author_elem = driver.find_element(By.XPATH, selector)
+                            authors = author_elem.text.strip()
+                        
+                        if authors and authors != "AWS Builder Community":
+                            print(f"  Found author with selector: {selector}")
+                            break
+                    except NoSuchElementException:
                         continue
-                    
-                    response = staging_table.scan(
-                        FilterExpression='contains(title, :keyword)',
-                        ExpressionAttributeValues={':keyword': keyword}
-                    )
-                    
-                    if response.get('Items'):
-                        results['partial_matches'].extend(response['Items'])
-                        print(f"  INFO: Found {len(response['Items'])} partial matches in staging table with keyword: {keyword}")
-                        log_to_cloudwatch(f"Found {len(response['Items'])} partial matches with keyword: {keyword}", 'INFO')
             except Exception as e:
-                print(f"  WARNING: Error scanning staging table by title: {e}")
-                log_to_cloudwatch(f"Error scanning staging table by title: {e}", 'WARNING')
-        
-    except Exception as e:
-        print(f"  ERROR: Error accessing staging table: {e}")
-        log_to_cloudwatch(f"Error accessing staging table: {e}", 'ERROR')
+                print(f"  Warning: Could not extract author: {e}")
+            
+            # Extract content
+            content = ""
+            try:
+                # Try multiple selectors for main content
+                content_selectors = [
+                    "//article",
+                    "//main",
+                    "//div[contains(@class, 'content')]",
+                    "//div[contains(@class, 'post')]",
+                    "//div[contains(@class, 'article')]"
+                ]
+                
+                for selector in content_selectors:
+                    try:
+                        content_elem = driver.find_element(By.XPATH, selector)
+                        content = content_elem.text.strip()
+                        if content and len(content) > 100:  # Ensure we got substantial content
+                            break
+                    except NoSuchElementException:
+                        continue
+                
+                # If no content found, try getting all text from body
+                if not content or len(content) < 100:
+                    body = driver.find_element(By.TAG_NAME, "body")
+                    content = body.text.strip()
+            except Exception as e:
+                print(f"  Warning: Could not extract content: {e}")
+                content = "Content extraction failed. Visit the full article on Builder.AWS."
+            
+            # Limit content to first 3000 characters (matching AWS Blog crawler)
+            if len(content) > 3000:
+                content = content[:3000]
+            
+            return {
+                'title': title,
+                'authors': authors,
+                'content': content
+            }
+
+        except TimeoutException:
+            if attempt < max_retries - 1:
+                print(f"  Timeout on attempt {attempt + 1}, retrying...")
+                time.sleep(2)
+            else:
+                print(f"  Failed after {max_retries} attempts")
+                return None
+                
+        except Exception as e:
+            print(f"  Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                return None
     
-    return results
+    return None
 
 
-def check_filtering_criteria(metadata, url):
+def update_post_in_dynamodb(post_id, authors, content):
+    """Enrichment-only update (legacy POST_IDS mode): authors + content only.
+
+    Does NOT touch title/summary/label - used when crawling a hand-fed list of
+    existing posts purely to refresh author/content.
     """
-    Verify if the post meets all filtering criteria that might cause it to be excluded
+    try:
+        table.update_item(
+            Key={'post_id': post_id},
+            UpdateExpression='SET authors = :authors, content = :content, last_crawled = :last_crawled',
+            ExpressionAttributeValues={
+                ':authors': authors,
+                ':content': content,
+                ':last_crawled': datetime.utcnow().isoformat()
+            }
+        )
+        return True
+    except Exception as e:
+        print(f"  Error updating DynamoDB for {post_id}: {e}")
+        return False
+
+
+def save_to_dynamodb(metadata):
+    """Full upsert for DISCOVERY mode: write title/authors/content and run
+    date-based change-detection so AI fields (summary/label) are only blanked on
+    new or genuinely-revised posts (prevents a Bedrock re-summarize storm).
+
+    metadata: {url, title, authors, content, date_updated (sitemap lastmod)}
+    Returns 'created' | 'updated' | False.
+    """
+    try:
+        url = metadata['url']
+        post_id = url.split('/')[-1] if not url.endswith('/') else url.split('/')[-2]
+        post_id = f"builder-{post_id}"
+        new_date = metadata.get('date_updated', '') or ''
+
+        content_changed = False
+        existed = False
+        try:
+            resp = table.get_item(Key={'post_id': post_id})
+            if 'Item' in resp:
+                existed = True
+                old_date = resp['Item'].get('date_updated', '')
+                if not old_date or old_date != new_date:
+                    content_changed = True
+                    print(f"  Article changed (lastmod {old_date or '(none)'} -> {new_date}) - regenerating")
+                else:
+                    print(f"  Article unchanged (lastmod: {new_date}) - preserving summary/label")
+            else:
+                content_changed = True
+                print(f"  New article - generating summary/label")
+        except Exception as e:
+            content_changed = True
+            print(f"  get_item failed for {post_id}, treating as changed: {e}")
+
+        common = {
+            ':url': url,
+            ':title': metadata['title'],
+            ':authors': metadata['authors'],
+            ':date_updated': new_date,
+            # The crawler has no page-level publish date, so seed date_published
+            # from the sitemap lastmod (same value as date_updated). It is written
+            # with if_not_exists so a real publish date set by another source is
+            # never overwritten, but a brand-new row always gets a sortable date.
+            # (Omitting this is what left 23 prod rows with a null date_published,
+            # sinking them to the bottom of the newest-first list - 2026-06-24.)
+            ':date_published': metadata.get('date_published') or new_date,
+            ':tags': 'End User Computing, Builder.AWS',
+            ':content': metadata['content'],
+            ':last_crawled': datetime.utcnow().isoformat(),
+            ':source': 'builder.aws.com',
+        }
+
+        if content_changed:
+            table.update_item(
+                Key={'post_id': post_id},
+                UpdateExpression='''
+                    SET #url = :url, title = :title, authors = :authors,
+                        date_updated = :date_updated,
+                        date_published = if_not_exists(date_published, :date_published),
+                        tags = :tags,
+                        content = :content, last_crawled = :last_crawled,
+                        summary = :empty, label = :empty,
+                        label_confidence = :zero, label_generated = :empty,
+                        #source = :source
+                ''',
+                ExpressionAttributeNames={'#url': 'url', '#source': 'source'},
+                ExpressionAttributeValues={**common, ':empty': '', ':zero': 0},
+            )
+        else:
+            table.update_item(
+                Key={'post_id': post_id},
+                UpdateExpression='''
+                    SET #url = :url, title = :title, authors = :authors,
+                        date_updated = :date_updated,
+                        date_published = if_not_exists(date_published, :date_published),
+                        tags = :tags,
+                        content = :content, last_crawled = :last_crawled,
+                        #source = :source
+                ''',
+                ExpressionAttributeNames={'#url': 'url', '#source': 'source'},
+                ExpressionAttributeValues=common,
+            )
+
+        # Distinguish outcomes so the caller only triggers summary regeneration
+        # for posts whose summary was actually blanked (new or changed):
+        #   'created'   - new post, summary blanked
+        #   'changed'   - existing post, lastmod differed, summary blanked
+        #   'unchanged' - existing post, summary preserved (no regen needed)
+        if not existed:
+            return 'created'
+        return 'changed' if content_changed else 'unchanged'
+    except Exception as e:
+        print(f"  Error saving {metadata.get('url')}: {e}")
+        return False
+
+
+def get_posts_to_crawl(post_ids):
+    """
+    Get posts to crawl from DynamoDB
     
     Args:
-        metadata: Post metadata dictionary
-        url: Post URL
-    
-    Returns:
-        dict: Analysis of filtering criteria with pass/fail status
-    """
-    print(f"  DEBUG: Checking filtering criteria for: {url}")
-    log_to_cloudwatch(f"Checking filtering criteria for: {url}", 'DEBUG')
-    
-    criteria = {
-        'has_publication_date': False,
-        'date_parseable': False,
-        'date_within_range': False,
-        'has_title': False,
-        'has_content': False,
-        'url_valid': False,
-        'meets_all_criteria': False,
-        'failures': []
-    }
-    
-    # Check publication date
-    if metadata.get('publication_date'):
-        criteria['has_publication_date'] = True
-        print(f"  DEBUG: ✓ Has publication date: {metadata['publication_date']}")
+        post_ids: List of specific post IDs to crawl
         
-        # Try to parse date
-        try:
-            parsed_date = date_parser.parse(metadata['publication_date'])
-            criteria['date_parseable'] = True
-            print(f"  DEBUG: ✓ Date is parseable: {parsed_date}")
-            log_to_cloudwatch(f"Parsed date: {parsed_date} from {metadata['publication_date']}", 'DEBUG')
-            
-            # Check if date is reasonable - FIXED: Allow future dates up to 1 year ahead
-            # This fixes the issue with staging posts that may have future dates during testing
-            now = datetime.now(timezone.utc)
-            one_year_ahead = now.replace(year=now.year + 1)
-            
-            if parsed_date <= one_year_ahead and parsed_date.year >= 2006:  # AWS founded in 2006
-                criteria['date_within_range'] = True
-                print(f"  DEBUG: ✓ Date is within valid range")
-            else:
-                criteria['failures'].append(f"Date out of range: {parsed_date}")
-                print(f"  DEBUG: ✗ Date out of range: {parsed_date}")
-                log_to_cloudwatch(f"Date out of range: {parsed_date}", 'WARNING')
-        except Exception as e:
-            criteria['failures'].append(f"Date parsing error: {e}")
-            print(f"  DEBUG: ✗ Could not parse date: {e}")
-            log_to_cloudwatch(f"Date parsing error for '{metadata['publication_date']}': {e}", 'WARNING')
-    else:
-        criteria['failures'].append("No publication date found")
-        print(f"  DEBUG: ✗ No publication date found")
-        log_to_cloudwatch(f"No publication date found for {url}", 'WARNING')
-    
-    # Check title
-    if metadata.get('title') and len(metadata['title'].strip()) > 5:
-        criteria['has_title'] = True
-        print(f"  DEBUG: ✓ Has valid title: {metadata['title'][:50]}...")
-    else:
-        criteria['failures'].append(f"Invalid title: {metadata.get('title')}")
-        print(f"  DEBUG: ✗ Invalid or missing title")
-    
-    # Check content (assuming metadata contains content info)
-    if metadata.get('description') or metadata.get('schema_metadata'):
-        criteria['has_content'] = True
-        print(f"  DEBUG: ✓ Has content/description")
-    else:
-        criteria['failures'].append("No content or description found")
-        print(f"  DEBUG: ✗ No content or description found")
-    
-    # Check URL validity
-    if url and (url.startswith('http://') or url.startswith('https://')):
-        criteria['url_valid'] = True
-        print(f"  DEBUG: ✓ URL is valid")
-    else:
-        criteria['failures'].append(f"Invalid URL: {url}")
-        print(f"  DEBUG: ✗ Invalid URL")
-    
-    # Overall check
-    criteria['meets_all_criteria'] = all([
-        criteria['has_publication_date'],
-        criteria['date_parseable'],
-        criteria['date_within_range'],
-        criteria['has_title'],
-        criteria['url_valid']
-    ])
-    
-    if criteria['meets_all_criteria']:
-        print(f"  INFO: ✓ Post meets all filtering criteria")
-        log_to_cloudwatch(f"Post meets all filtering criteria: {url}", 'INFO')
-    else:
-        print(f"  WARNING: ✗ Post fails filtering criteria: {', '.join(criteria['failures'])}")
-        log_to_cloudwatch(f"Post fails filtering criteria: {url} - {', '.join(criteria['failures'])}", 'WARNING')
-    
-    return criteria
-
-
-def extract_aws_blog_metadata(driver, url):
+    Returns:
+        list: List of dicts with {'post_id': str, 'url': str}
     """
-    Extract comprehensive metadata from AWS blog post for debugging
-    Enhanced to better detect staging posts and various date formats
-    FIXED: Improved date extraction for staging.awseuccontent.com posts
+    posts = []
+    for post_id in post_ids:
+        try:
+            response = table.get_item(Key={'post_id': post_id})
+            if 'Item' in response:
+                item = response['Item']
+                posts.append({
+                    'post_id': post_id,
+                    'url': item.get('url', '')
+                })
+        except Exception as e:
+            print(f"  Error fetching post {post_id}: {e}")
+    return posts
+
+
+def invoke_summary_generator(posts_updated):
+    """Invoke summary generator Lambda for the posts we just updated"""
+    try:
+        # Determine which alias to use based on environment
+        function_name = f"aws-blog-summary-generator:{ENVIRONMENT}"
+        
+        # Calculate number of batches needed (5 posts per batch)
+        batch_size = 5
+        num_batches = (posts_updated + batch_size - 1) // batch_size
+        
+        for i in range(num_batches):
+            lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType='Event',  # Async invocation
+                Payload=json.dumps({
+                    'batch_size': batch_size,
+                    'force': False,
+                    'table_name': TABLE_NAME  # Pass table name for staging support
+                })
+            )
+            print(f"  Invoked summary batch {i+1}/{num_batches} ({function_name})")
+            time.sleep(2)  # 2-second delay between batches
+        
+        return True
+    except Exception as e:
+        print(f"  Warning: Could not invoke summary Lambda: {e}")
+        return False
+
+
+def main():
+    """Main entry point for ECS task"""
+    print(f"Starting Builder.AWS Selenium Crawler (ECS)")
+    print(f"Environment: {ENVIRONMENT}")
+    print(f"DynamoDB Table: {TABLE_NAME}")
+
+    # Two modes:
+    #   - DISCOVERY (default, POST_IDS empty): crawl the whole sitemap, full
+    #     upsert with title + change-detection. This is the primary mode now.
+    #   - ENRICHMENT (POST_IDS set): legacy author/content refresh of a hand-fed
+    #     list of existing posts (no title/discovery).
+    discovery_mode = not POST_IDS
+    if discovery_mode:
+        print("Mode: DISCOVERY (full sitemap crawl)")
+        url_pairs = discover_euc_urls()
+        posts = [{'post_id': None, 'url': u, 'lastmod': lm} for u, lm in url_pairs]
+    else:
+        print(f"Mode: ENRICHMENT  Post IDs: {POST_IDS}")
+        posts = [{**p, 'lastmod': ''} for p in get_posts_to_crawl(POST_IDS)]
+
+    if not posts:
+        print("ERROR: No posts found to crawl")
+        sys.exit(1)
+
+    print(f"Found {len(posts)} posts to crawl")
+    
+    # Set up Selenium driver
+    driver = None
+    posts_processed = 0
+    posts_updated = 0
+    posts_failed = 0
+    
+    posts_created = 0
+    posts_regenerated = 0  # new + changed; only these need summary regeneration
+    try:
+        driver = setup_driver()
+        print("Chrome driver initialized successfully")
+
+        # Process each post
+        for idx, post in enumerate(posts, 1):
+            post_id = post['post_id']
+            url = post['url']
+
+            print(f"[{idx}/{len(posts)}] Processing: {url}")
+
+            # Periodic Chrome restart keeps memory in check on long discovery
+            # runs (Fargate is multi-process so far more stable than Lambda, but
+            # this is cheap insurance for the full ~175-post catalog).
+            if idx > 1 and idx % 50 == 0:
+                print(f"  Restarting Chrome (processed {idx} posts)...")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                time.sleep(2)
+                driver = setup_driver()
+
+            # Extract content (+ title)
+            result = extract_page_content(driver, url)
+
+            if result:
+                if discovery_mode:
+                    result['url'] = url
+                    result['date_updated'] = post.get('lastmod', '')
+                    outcome = save_to_dynamodb(result)
+                    if outcome == 'created':
+                        posts_created += 1; posts_updated += 1; posts_regenerated += 1
+                        print(f"  + Created: {result['title'][:55]} by {result['authors']}")
+                    elif outcome == 'changed':
+                        posts_updated += 1; posts_regenerated += 1
+                        print(f"  ~ Changed: {result['title'][:55]} by {result['authors']}")
+                    elif outcome == 'unchanged':
+                        posts_updated += 1
+                        print(f"  = Unchanged: {result['title'][:55]} by {result['authors']}")
+                    else:
+                        posts_failed += 1
+                        print(f"  x Failed to save")
+                else:
+                    if update_post_in_dynamodb(post_id, result['authors'], result['content']):
+                        print(f"  ~ Updated: {result['authors']}")
+                        posts_updated += 1
+                    else:
+                        posts_failed += 1
+                        print(f"  x Failed to update DynamoDB")
+            else:
+                print(f"  x Failed to extract content")
+                posts_failed += 1
+
+            posts_processed += 1
+
+            # Small delay between requests
+            time.sleep(1)
+    
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+        sys.exit(1)
+    
+    finally:
+        if driver:
+            driver.quit()
+            print("Chrome driver closed")
+    
+    # Invoke summary generator ONLY for posts whose summary was blanked
+    # (new + changed). In ENRICHMENT mode nothing is blanked, so use the legacy
+    # behavior of regenerating for everything updated.
+    to_regenerate = posts_regenerated if discovery_mode else posts_updated
+    if to_regenerate > 0:
+        print(f"\n{to_regenerate} posts need summaries - invoking summary generator")
+        invoke_summary_generator(to_regenerate)
+    else:
+        print("\nNo new/changed posts - skipping summary generator")
+
+    # Print summary
+    print(f"\n=== Crawler Summary ===")
+    print(f"Mode: {'DISCOVERY' if discovery_mode else 'ENRICHMENT'}")
+    print(f"Posts processed: {posts_processed}")
+    print(f"Posts created: {posts_created}")
+    print(f"Posts regenerated (new+changed): {posts_regenerated}")
+    print(f"Posts updated: {posts_updated}")
+    print(f"Posts failed: {posts_failed}")
+    
+    # Exit with appropriate code
+    if posts_failed > 0:
+        print("Exiting with failure code (some posts failed)")
+        sys.exit(1)
+    else:
+        print("Exiting with success code")
+        sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()
