@@ -26,6 +26,18 @@ except ImportError:
 dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE_NAME', 'aws-blog-posts')
 
+# builder.aws.com is a client-side-rendered SPA. When the requests-based fallback
+# fetches a page (no JS), it gets the unrendered shell whose <title> is the site
+# name, not the article. Treat these as "no real content extracted" so we skip
+# the row instead of poisoning title/content with the shell name (the 2026-06-17
+# incident wrote 21 posts titled "AWS Builder Center"). Compared case-insensitively
+# after stripping whitespace.
+SPA_SHELL_TITLES = {
+    'aws builder center',
+    'builder.aws',
+    'builder.aws.com',
+}
+
 
 def resolve_table_name(event=None):
     """Resolve the target DynamoDB table per invocation.
@@ -374,7 +386,28 @@ def extract_page_content_requests(url, sitemap_date=''):
             content = raw
         
         metadata['content'] = content[:3000]
-        
+
+        # Guard against persisting an unrendered SPA shell. The requests fallback
+        # can't execute the page's JS, so if the page never hydrated we end up with
+        # the site-shell title (and the same string as "content"). Detect that and
+        # skip the row (return None -> the handler counts it as skipped) rather than
+        # overwriting a good record with "AWS Builder Center". A slug-derived title
+        # is acceptable; a shell title or title==content is not.
+        title_norm = metadata['title'].strip().lower()
+        content_norm = metadata['content'].strip().lower()
+        if title_norm in SPA_SHELL_TITLES or content_norm in SPA_SHELL_TITLES:
+            print(f"  Skipping {url}: requests fallback got only the SPA shell "
+                  f"(title='{metadata['title']}') — no rendered content")
+            return None
+        if title_norm and title_norm == content_norm:
+            print(f"  Skipping {url}: title equals content "
+                  f"('{metadata['title'][:40]}') — page did not render")
+            return None
+        if len(metadata['content']) < 100:
+            print(f"  Skipping {url}: content too short "
+                  f"({len(metadata['content'])} chars) — page did not render")
+            return None
+
         debug_print(f"Extracted title='{metadata['title']}', content_len={len(metadata['content'])}")
         return metadata
         
