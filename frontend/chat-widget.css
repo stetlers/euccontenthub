@@ -236,6 +236,43 @@
     color: white;
 }
 
+/* Rendered Markdown inside assistant message bubbles */
+.chat-message-bubble .chat-md-heading {
+    font-weight: 700;
+    margin: 10px 0 4px;
+}
+
+.chat-message-bubble .chat-md-heading:first-child {
+    margin-top: 0;
+}
+
+.chat-message-bubble .chat-md-list {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+
+.chat-message-bubble .chat-md-list li {
+    margin: 2px 0;
+}
+
+.chat-message-bubble code {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+}
+
+.chat-message-bubble a {
+    color: #0972d3;
+    text-decoration: underline;
+}
+
+.chat-message.user .chat-message-bubble a,
+.chat-message.user .chat-message-bubble code {
+    color: white;
+}
+
 .chat-message-time {
     font-size: 0.75rem;
     color: #999;

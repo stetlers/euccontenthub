@@ -29,7 +29,7 @@ class ChatWidget {
         chatButton.className = 'chat-button';
         chatButton.id = 'chatButton';
         chatButton.innerHTML = '💬';
-        chatButton.title = 'Chat with EUC Content Finder';
+        chatButton.title = 'Chat with WorkSpaces Community Finder';
         
         // Create chat window
         const chatWindow = document.createElement('div');
@@ -40,7 +40,7 @@ class ChatWidget {
                 <div class="chat-header-top">
                     <div class="chat-header-title">
                         <span class="chat-header-icon">🤖</span>
-                        <span>EUC Content Finder</span>
+                        <span>WorkSpaces Community Finder</span>
                     </div>
                     <div class="chat-header-actions">
                         <button class="chat-expand-btn" id="chatExpandBtn" title="Expand view">
@@ -321,7 +321,7 @@ class ChatWidget {
         messageDiv.innerHTML = `
             <div class="chat-message-avatar">${avatar}</div>
             <div class="chat-message-content">
-                <div class="chat-message-bubble">${this.escapeHtml(contentWithCitations)}</div>
+                <div class="chat-message-bubble">${this.renderMarkdown(contentWithCitations)}</div>
                 ${citationsHTML}
                 ${recommendationsHTML}
                 ${proposalSuggestionHTML}
@@ -427,6 +427,46 @@ class ChatWidget {
         }
     }
     
+    renderMarkdown(text) {
+        if (!text) return '';
+
+        // Apply inline Markdown to text that has ALREADY been HTML-escaped.
+        // escapeHtml only touches & < > ", so [](), *, _, ` are still intact.
+        const inline = (s) => s
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+                '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        const lines = this.escapeHtml(text).split('\n');
+        let html = '';
+        let inList = false;
+        const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+
+        for (const raw of lines) {
+            const line = raw.replace(/\s+$/, '');
+            const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+            const heading = line.match(/^\s*#{1,6}\s+(.*)$/);
+
+            if (bullet) {
+                if (!inList) { html += '<ul class="chat-md-list">'; inList = true; }
+                html += `<li>${inline(bullet[1])}</li>`;
+            } else if (heading) {
+                closeList();
+                html += `<div class="chat-md-heading">${inline(heading[1])}</div>`;
+            } else if (line.trim() === '') {
+                closeList();
+                html += '<br>';
+            } else {
+                closeList();
+                html += `${inline(line)}<br>`;
+            }
+        }
+        closeList();
+        return html;
+    }
+
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
