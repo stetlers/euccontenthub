@@ -3,13 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EUC Content Hub - Staging</title>
-    <link rel="stylesheet" href="styles-refined.css?v=20260223-refined">
+    <title>Amazon WorkSpaces Community Hub - Staging</title>
+    <link rel="stylesheet" href="styles-refined.css?v=20260626-proposals2">
     <link rel="stylesheet" href="chat-widget.css">
+    <link rel="stylesheet" href="chat-widget-kb-styles.css">
     <link rel="stylesheet" href="zoom-mode.css">
     <link rel="stylesheet" href="cart.css">
     <link rel="stylesheet" href="kb-editor-styles.css?v=20260226-kb">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Prism.js for code syntax highlighting (Innovation Hub) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+    <!-- Mermaid.js for architecture diagrams (Innovation Hub) -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad: false, theme: 'dark'});</script>
 </head>
 <body>
     <div class="container">
@@ -21,9 +35,17 @@
                     <span class="propose-text">Propose Article</span>
                 </button>
             </div>
-            <h1>EUC Content Hub</h1>
-            <p class="subtitle">Discover and explore End User Computing articles, blogs, and technical content</p>
+            <h1>Amazon WorkSpaces Community Hub</h1>
+            <p class="subtitle">A place for the Agentic WorkSpaces Community to get together — like and vote on aggregated content, propose new ideas and share feedback with the community, stay up to speed on all the latest releases, and win achievements through activity.</p>
         </header>
+
+        <!-- What's New Chyron (News Ticker) -->
+        <div id="whatsNewChiron" class="whats-new-chiron" style="display:none;">
+            <div class="chiron-label">WHAT'S NEW</div>
+            <div class="chiron-track-container">
+                <div class="chiron-track" id="chironTrack"></div>
+            </div>
+        </div>
 
         <!-- Analytics Charts -->
         <div class="analytics-section">
@@ -46,6 +68,14 @@
             <div class="chart-container">
                 <h3 class="chart-title">💬 Top 6 Posts by Comments</h3>
                 <canvas id="topCommentsChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">🚀 EUC Releases per Month</h3>
+                <canvas id="releasesPerMonthChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">📝 KB Contributor Leaderboard</h3>
+                <div id="kbLeaderboard"></div>
             </div>
         </div>
 
@@ -116,8 +146,12 @@
                             <span class="crawl-text">Crawl for New Posts</span>
                         </button>
                         <button id="refreshBtn" class="btn-secondary">Reload Data</button>
+                        <span id="pipelineStatus" class="pipeline-status" style="display:none;"></span>
                     </div>
                 </div>
+
+                <!-- Source Filter Toggle -->
+                <div id="sourceFilterContainer" class="source-filter-container"></div>
 
                 <div id="loading" class="loading">
                     <div class="spinner"></div>
@@ -271,7 +305,7 @@
                     
                     <p class="proposal-note">
                         <strong>Next Steps:</strong> Use this proposal as a guide to write your article. 
-                        You can submit it to Builder.AWS or share it with the EUC community!
+                        You can submit it to Builder.AWS or share it with the WorkSpaces Community!
                     </p>
                 </div>
             </div>
@@ -338,14 +372,14 @@
             </div>
             <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                 <p style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9900; margin-bottom: 20px;">
-                    <strong>TL;DR:</strong> Be respectful, don't abuse the service, and understand this is a community platform for sharing EUC content.
+                    <strong>TL;DR:</strong> Be respectful, don't abuse the service, and understand this is a community platform for sharing WorkSpaces Community content.
                 </p>
 
                 <h3 style="margin-top: 20px;">Acceptance of Terms</h3>
-                <p>By accessing and using EUC Content Hub, you agree to these Terms of Service. If you don't agree, please don't use the service.</p>
+                <p>By accessing and using Amazon WorkSpaces Community Hub, you agree to these Terms of Service. If you don't agree, please don't use the service.</p>
 
                 <h3 style="margin-top: 20px;">Service Description</h3>
-                <p>EUC Content Hub is a community platform for discovering, sharing, and discussing End User Computing content from AWS blogs and Builder.AWS. The service is provided "as is" without warranties.</p>
+                <p>Amazon WorkSpaces Community Hub is a community platform for discovering, sharing, and discussing Amazon WorkSpaces content from AWS blogs and Builder.AWS. The service is provided "as is" without warranties.</p>
 
                 <h3 style="margin-top: 20px;">User Accounts</h3>
                 <ul style="margin-left: 20px; margin-bottom: 15px;">
@@ -465,7 +499,7 @@
     <footer style="background: #232f3e; color: white; padding: 30px 20px; margin-top: 60px; text-align: center;">
         <div style="max-width: 1200px; margin: 0 auto;">
             <p style="margin-bottom: 15px; font-size: 0.9rem;">
-                EUC Content Hub - Discover and explore End User Computing content
+                Amazon WorkSpaces Community Hub
             </p>
             <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 15px;">
                 <a href="#" id="privacyLink" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Privacy Policy</a>
@@ -476,10 +510,10 @@
                 <span style="color: #666;">|</span>
                 <a href="https://github.com/stetlers/euccontenthub" target="_blank" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">GitHub</a>
                 <span style="color: #666;">|</span>
-                <a href="https://builder.aws.com/learn/topics/end-user-computing" target="_blank" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Builder.AWS EUC</a>
+                <a href="https://builder.aws.com/learn/topics/end-user-computing" target="_blank" style="color: #ff9900; text-decoration: none; font-size: 0.9rem;">Builder.AWS WorkSpaces</a>
             </div>
             <p style="color: #999; font-size: 0.8rem;">
-                © 2026 EUC Content Hub. Not affiliated with Amazon Web Services.
+                © 2026 Amazon WorkSpaces Community Hub. Not affiliated with Amazon Web Services.
             </p>
         </div>
     </footer>
