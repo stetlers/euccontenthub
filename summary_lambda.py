@@ -45,8 +45,12 @@ def resolve_environment(event, table_name):
 
 print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
 
-# Bedrock model to use
-MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0'  # Fast and cheap
+# Bedrock model to use.
+# Migrated off the retired 'anthropic.claude-3-haiku-20240307-v1:0' (access was
+# revoked after 30 days of no use during the crawler freeze). Haiku 4.5 is the
+# fast/cheap successor and requires an inference-profile id (the bare
+# 'anthropic.*' id is not supported for on-demand invoke_model).
+MODEL_ID = 'global.anthropic.claude-haiku-4-5-20251001-v1:0'  # Fast and cheap
 
 
 class DecimalEncoder(json.JSONEncoder):

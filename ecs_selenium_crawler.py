@@ -26,6 +26,13 @@ POST_IDS_STR = os.environ.get('POST_IDS', '')
 # Parse post IDs
 POST_IDS = [pid.strip() for pid in POST_IDS_STR.split(',') if pid.strip()]
 
+# Diagnostic flag: when AUTHOR_DEBUG is set, dump the rendered author-region DOM
+# for the first few pages so we can (re)discover the current Builder.AWS markup
+# after a frontend redeploy rotates the CSS-module class names. No effect on a
+# normal run. AUTHOR_DEBUG=<int> controls how many pages to dump (default 3).
+AUTHOR_DEBUG = int(os.environ.get('AUTHOR_DEBUG', '0') or '0')
+_author_debug_dumped = 0
+
 # When POST_IDS is empty the crawler runs in DISCOVERY mode: it reads the
 # builder.aws sitemap, filters to EUC-related posts, and creates/updates them
 # (full title + content), exactly like the Lambda crawler but without the
@@ -160,6 +167,52 @@ def extract_page_content(driver, url, max_retries=3):
             # Give JavaScript time to render
             time.sleep(2)
 
+            # --- AUTHOR_DEBUG diagnostic: dump the rendered author-region DOM ---
+            global _author_debug_dumped
+            if AUTHOR_DEBUG and _author_debug_dumped < AUTHOR_DEBUG:
+                _author_debug_dumped += 1
+                try:
+                    print(f"\n===== AUTHOR_DEBUG dump {_author_debug_dumped}/{AUTHOR_DEBUG}: {url} =====")
+                    # 1) Any element whose class/id/testid hints at author or profile.
+                    probe = driver.execute_script(r"""
+                        const hits = [];
+                        const rx = /(author|profile|byline|contributor|user-?name|display-?name)/i;
+                        const all = document.querySelectorAll('*');
+                        for (const el of all) {
+                            const cls = (el.className && el.className.baseVal !== undefined) ? el.className.baseVal : (el.className || '');
+                            const id = el.id || '';
+                            const tid = el.getAttribute('data-testid') || '';
+                            if (rx.test(cls) || rx.test(id) || rx.test(tid)) {
+                                hits.push({
+                                    tag: el.tagName.toLowerCase(),
+                                    cls: String(cls).slice(0,120),
+                                    id: id.slice(0,60),
+                                    testid: tid.slice(0,60),
+                                    text: (el.innerText || '').trim().slice(0,80),
+                                    href: el.getAttribute('href') || ''
+                                });
+                            }
+                        }
+                        return hits.slice(0, 40);
+                    """)
+                    print("  candidate author/profile elements:")
+                    for h in probe:
+                        print(f"    <{h['tag']}> cls={h['cls']!r} id={h['id']!r} testid={h['testid']!r} href={h['href']!r} text={h['text']!r}")
+                    # 2) All profile links (author pages usually live under /users/ or /@handle).
+                    links = driver.execute_script(r"""
+                        return Array.from(document.querySelectorAll('a[href]'))
+                            .map(a => ({href: a.getAttribute('href'), text: (a.innerText||'').trim().slice(0,60)}))
+                            .filter(a => /\/(users|profile|community|@)/i.test(a.href))
+                            .slice(0, 25);
+                    """)
+                    print("  profile-ish links:")
+                    for l in links:
+                        print(f"    href={l['href']!r} text={l['text']!r}")
+                except Exception as dbg_e:
+                    print(f"  AUTHOR_DEBUG probe error: {dbg_e}")
+                print("===== end AUTHOR_DEBUG dump =====\n")
+            # --- end diagnostic ---
+
             # Extract title from rendered <h1>, with shell-title guard + slug fallback.
             title = ''
             try:
@@ -172,37 +225,71 @@ def extract_page_content(driver, url, max_retries=3):
                 title = extract_title_from_slug(url)
                 print(f"  Using slug-based title: {title}")
 
-            # Extract author name
-            authors = "AWS Builder Community"  # Default
+            # Extract author name.
+            #
+            # Builder.AWS is an SPA whose author block uses CSS-module class names
+            # (e.g. _profile-name_1mg0v_41) that rotate on every frontend build, so
+            # class-based selectors are brittle and silently broke during the 2026
+            # freeze. The durable signal is the author's profile *link*: the byline
+            # renders an <a href="/community/@handle">Display Name</a>. That URL
+            # shape is semantic and stable, so we key off it first and fall back to
+            # the (tag-agnostic) profile-name element only if no such link is found.
+            authors = "AWS Builder Community"  # Default when nothing resolves
+
+            # Noise the author element/link text can carry that must be stripped.
+            _AUTHOR_NOISE = {'follow', 'aws employee', 'aws community builder',
+                             'aws hero', ''}
+
+            def _clean_author(raw):
+                """First non-noise line of an author blob (drops Follow/date/etc)."""
+                if not raw:
+                    return ''
+                for line in raw.split('\n'):
+                    line = line.strip()
+                    if line and line.lower() not in _AUTHOR_NOISE:
+                        return line
+                return ''
+
             try:
-                # Try multiple selectors for author
-                # Builder.AWS uses CSS modules with dynamic class names like _profile-name_xxxxx
-                author_selectors = [
-                    "//span[contains(@class, 'profile-name')]//span[contains(@class, 'ellipse-text')]",
-                    "//span[contains(@class, 'profile-name')]",
-                    "//span[contains(@class, '_profile-name')]",
-                    "//meta[@name='author']",
-                    "//span[contains(@class, 'author')]",
-                    "//div[contains(@class, 'author')]",
-                    "//a[contains(@class, 'author')]"
-                ]
-                
-                for selector in author_selectors:
-                    try:
-                        if selector.startswith("//meta"):
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.get_attribute('content')
-                        else:
-                            author_elem = driver.find_element(By.XPATH, selector)
-                            authors = author_elem.text.strip()
-                        
-                        if authors and authors != "AWS Builder Community":
-                            print(f"  Found author with selector: {selector}")
-                            break
-                    except NoSuchElementException:
-                        continue
+                # 1) Primary: profile link /community/@handle -> its text is the name.
+                #    Exclude the nav links (/community, /community/heroes, ...) by
+                #    requiring the '@' handle segment.
+                link_authors = driver.execute_script(r"""
+                    return Array.from(document.querySelectorAll('a[href]'))
+                        .filter(a => /\/community\/@[^/]+/.test(a.getAttribute('href') || ''))
+                        .map(a => (a.innerText || '').trim())
+                        .filter(Boolean);
+                """) or []
+                for cand in link_authors:
+                    name = _clean_author(cand)
+                    if name:
+                        authors = name
+                        print(f"  Found author via profile link: {authors}")
+                        break
+
+                # 2) Fallback: the profile-name heading (any tag), class-prefixed.
+                if authors == "AWS Builder Community":
+                    for selector in (
+                        "//*[contains(@class, '_profile-name')]",
+                        "//*[contains(@class, 'profile-name')]",
+                        "//meta[@name='author']",
+                    ):
+                        try:
+                            elem = driver.find_element(By.XPATH, selector)
+                            raw = (elem.get_attribute('content')
+                                   if selector.startswith("//meta") else elem.text)
+                            name = _clean_author(raw)
+                            if name:
+                                authors = name
+                                print(f"  Found author with fallback selector: {selector}")
+                                break
+                        except NoSuchElementException:
+                            continue
             except Exception as e:
                 print(f"  Warning: Could not extract author: {e}")
+
+            if authors == "AWS Builder Community":
+                print(f"  No author resolved for {url} - using default")
             
             # Extract content
             content = ""

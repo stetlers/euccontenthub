@@ -22,7 +22,11 @@ from euc_filter.config import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+# Migrated off the retired 'anthropic.claude-3-haiku-20240307-v1:0' (access was
+# revoked after 30 days of no use during the crawler freeze). Haiku 4.5 is the
+# fast/cheap successor and requires an inference-profile id (the bare
+# 'anthropic.*' id is not supported for on-demand invoke_model).
+MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 _RETRYABLE_ERRORS = frozenset(
     {
