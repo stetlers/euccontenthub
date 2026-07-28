@@ -23,6 +23,17 @@ def get_table_suffix():
 
 print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
 
+
+def key_attr_for_table(table_name):
+    """Primary-key attribute name for a content table.
+
+    Blog-posts tables key on 'post_id'; the What's New tables key on
+    'announcement_id'. Classification is shared across both, so the key name is
+    derived from the table instead of being hardcoded to 'post_id'.
+    """
+    return 'announcement_id' if (table_name or '').startswith('aws-whats-new') else 'post_id'
+
+
 # Bedrock model to use.
 # Migrated off the retired 'anthropic.claude-3-haiku-20240307-v1:0' (access was
 # revoked after 30 days of no use during the crawler freeze). Haiku 4.5 is the
@@ -201,7 +212,8 @@ def lambda_handler(event, context):
         
         # Use the specified table
         table = dynamodb.Table(table_name)
-        
+        key_attr = key_attr_for_table(table_name)
+
         print(f"Starting classification")
         print(f"Batch size: {batch_size}")
         print(f"Force reclassify: {force}")
@@ -214,7 +226,7 @@ def lambda_handler(event, context):
             # Process single post - fetch full post data from DynamoDB
             print(f"Processing single post: {post_id}")
             try:
-                response = table.get_item(Key={'post_id': post_id})
+                response = table.get_item(Key={key_attr: post_id})
                 if 'Item' in response:
                     posts_to_process = [response['Item']]
                 else:
@@ -258,11 +270,12 @@ def lambda_handler(event, context):
         
         # Process each post
         for post in posts_to_process:
-            post_id = post['post_id']
+            post_id = post[key_attr]
             title = post.get('title', 'Untitled')
             summary = post.get('summary', '')
-            content = post.get('content', '')
-            
+            # Blog posts store 'content'; What's New RSS items store 'description'.
+            content = post.get('content') or post.get('description', '')
+
             print(f"Processing: {title[:50]}...")
             posts_processed += 1
             
@@ -273,7 +286,7 @@ def lambda_handler(event, context):
                 # Save to DynamoDB
                 from datetime import datetime
                 table.update_item(
-                    Key={'post_id': post_id},
+                    Key={key_attr: post_id},
                     UpdateExpression='SET label = :label, label_confidence = :confidence, label_generated = :timestamp',
                     ExpressionAttributeValues={
                         ':label': classification['label'],

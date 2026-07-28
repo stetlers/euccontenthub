@@ -53,6 +53,23 @@ print(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
 MODEL_ID = 'global.anthropic.claude-haiku-4-5-20251001-v1:0'  # Fast and cheap
 
 
+def key_attr_for_table(table_name):
+    """Primary-key attribute name for a content table.
+
+    Blog-posts tables key on 'post_id'; the What's New tables key on
+    'announcement_id'. Summary/label generation is shared across both, so the
+    key name is derived from the table instead of being hardcoded to 'post_id'
+    (the latter is why What's New items never got summaries/labels).
+    """
+    return 'announcement_id' if (table_name or '').startswith('aws-whats-new') else 'post_id'
+
+
+def get_text_for_summary(post):
+    """Body text to summarize. Blog posts store 'content'; What's New RSS items
+    store 'description'. Fall back so both tables work."""
+    return post.get('content') or post.get('description', '')
+
+
 class DecimalEncoder(json.JSONEncoder):
     """Helper class to convert DynamoDB Decimal types to JSON"""
     def default(self, obj):
@@ -169,7 +186,8 @@ def lambda_handler(event, context):
         
         # Use the specified table
         table = dynamodb.Table(table_name)
-        
+        key_attr = key_attr_for_table(table_name)
+
         # --- Retroactive re-evaluation mode (Requirement 7) ---
         if event and event.get('revalidate_existing'):
             print("Revalidate existing posts mode activated")
@@ -190,10 +208,10 @@ def lambda_handler(event, context):
                 posts = response.get('Items', [])
 
                 for post in posts:
-                    post_id = post.get('post_id')
+                    post_id = post.get(key_attr)
                     title = post.get('title', 'Untitled')
                     url = post.get('url', '')
-                    content = post.get('content', '')
+                    content = get_text_for_summary(post)
                     summary = post.get('summary', '')
 
                     ai_result = ai_validate(
@@ -206,7 +224,7 @@ def lambda_handler(event, context):
                     if ai_result.score is not None:
                         flagged = ai_result.score < threshold
                         table.update_item(
-                            Key={'post_id': post_id},
+                            Key={key_attr: post_id},
                             UpdateExpression='SET relevance_score = :score, '
                                             'ai_validation_result = :result, '
                                             'ai_validation_explanation = :explanation, '
@@ -270,7 +288,7 @@ def lambda_handler(event, context):
             # Process single post - fetch full post data from DynamoDB
             print(f"Processing single post: {post_id}")
             try:
-                response = table.get_item(Key={'post_id': post_id})
+                response = table.get_item(Key={key_attr: post_id})
                 if 'Item' in response:
                     posts_to_process = [response['Item']]
                 else:
@@ -317,26 +335,26 @@ def lambda_handler(event, context):
         
         # Process each post
         for post in posts_to_process:
-            current_post_id = post['post_id']
+            current_post_id = post[key_attr]
             title = post.get('title', 'Untitled')
-            content = post.get('content', '')
-            
+            content = get_text_for_summary(post)
+
             print(f"Processing: {title[:50]}...")
             posts_processed += 1
-            
+
             try:
                 # Generate summary with exponential backoff
                 summary = generate_summary(title, content)
-                
+
                 # If summary generation failed (returned None), skip this post
                 if summary is None:
                     print(f"  ⚠️  Skipped - failed to generate summary after retries")
                     errors += 1
                     continue
-                
+
                 # Save to DynamoDB
                 table.update_item(
-                    Key={'post_id': current_post_id},
+                    Key={key_attr: current_post_id},
                     UpdateExpression='SET summary = :summary, summary_generated = :timestamp',
                     ExpressionAttributeValues={
                         ':summary': summary,
@@ -360,7 +378,7 @@ def lambda_handler(event, context):
                 if ai_result.score is not None:
                     flagged = ai_result.score < threshold
                     table.update_item(
-                        Key={'post_id': current_post_id},
+                        Key={key_attr: current_post_id},
                         UpdateExpression='SET relevance_score = :score, '
                                         'ai_validation_result = :result, '
                                         'ai_validation_explanation = :explanation, '
@@ -381,7 +399,7 @@ def lambda_handler(event, context):
                 else:
                     # AI error — log warning, don't flag
                     table.update_item(
-                        Key={'post_id': current_post_id},
+                        Key={key_attr: current_post_id},
                         UpdateExpression='SET ai_validation_result = :result',
                         ExpressionAttributeValues={':result': 'error'}
                     )
