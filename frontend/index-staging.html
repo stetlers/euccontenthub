@@ -4,7 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amazon WorkSpaces Community Hub - Staging</title>
-    <link rel="stylesheet" href="styles-refined.css?v=20260626-proposals2">
+    <link rel="icon" type="image/x-icon" href="favicon.ico?v=20260729">
+    <!-- Apply saved theme before paint to avoid a flash of light mode -->
+    <script>
+        (function () {
+            try {
+                if (localStorage.getItem('euc-theme') === 'dark') {
+                    document.documentElement.classList.add('dark-mode');
+                }
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="styles-console.css?v=20260729-allcats">
     <link rel="stylesheet" href="chat-widget.css">
     <link rel="stylesheet" href="chat-widget-kb-styles.css">
     <link rel="stylesheet" href="zoom-mode.css">
@@ -29,14 +40,16 @@
     <div class="container">
         <header>
             <div class="header-right">
-                <div id="authContainer"></div>
+                <button id="themeToggleBtn" class="btn-theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+                    <span class="theme-toggle-icon">🌙</span>
+                </button>
                 <button id="proposeArticleBtn" class="btn-propose-article" title="Can't find what you're looking for? Propose a community article!">
                     <span class="propose-icon">✍️</span>
                     <span class="propose-text">Propose Article</span>
                 </button>
+                <div id="authContainer"></div>
             </div>
-            <h1>Amazon WorkSpaces Community Hub</h1>
-            <p class="subtitle">A place for the Agentic WorkSpaces Community to get together — like and vote on aggregated content, propose new ideas and share feedback with the community, stay up to speed on all the latest releases, and win achievements through activity.</p>
+            <h1><img src="portal_logo.png?v=20260729" alt="" class="brand-logo" aria-hidden="true">Amazon WorkSpaces Community Hub</h1>
         </header>
 
         <!-- What's New Chyron (News Ticker) -->
@@ -47,8 +60,16 @@
             </div>
         </div>
 
-        <!-- Analytics Charts -->
-        <div class="analytics-section">
+        <!-- Analytics Charts (collapsible; collapsed by default to keep the
+             search experience uncluttered) -->
+        <section class="analytics-panel collapsed" id="analyticsPanel">
+            <button class="analytics-panel-toggle" id="analyticsPanelToggle"
+                    aria-expanded="false" aria-controls="analyticsSection">
+                <span class="analytics-panel-caret" aria-hidden="true">▸</span>
+                <span class="analytics-panel-title">📊 Community Analytics</span>
+                <span class="analytics-panel-hint">Leaderboards, activity trends &amp; top posts</span>
+            </button>
+            <div class="analytics-section" id="analyticsSection">
             <div class="chart-container">
                 <h3 class="chart-title">🏆 Community Leaderboard</h3>
                 <canvas id="leaderboardChart"></canvas>
@@ -77,7 +98,8 @@
                 <h3 class="chart-title">📝 KB Contributor Leaderboard</h3>
                 <div id="kbLeaderboard"></div>
             </div>
-        </div>
+            </div>
+        </section>
 
         <!-- Three Column Layout: Left Sidebar | Main Content | Right Sidebar -->
         <div class="content-wrapper">
@@ -118,10 +140,21 @@
                         <span class="stat-label">Resolved</span>
                     </div>
                 </div>
+
+                <!-- Source Filter Toggle -->
+                <h3 class="sidebar-header sidebar-header-sub">🗂️ Source</h3>
+                <div id="sourceFilterContainer" class="source-filter-container"></div>
+
+                <!-- Category / Label Filters -->
+                <h3 class="sidebar-header sidebar-header-sub">🏷️ Categories</h3>
+                <div class="label-filters-section">
+                    <div id="labelFilters" class="label-filters"></div>
+                </div>
             </aside>
 
             <!-- Main Content: Search & Posts -->
             <main class="main-content">
+                <p class="subtitle">A place for the Agentic WorkSpaces Community to get together — like and vote on aggregated content, propose new ideas and share feedback with the community, stay up to speed on all the latest releases, and win achievements through activity.</p>
                 <div class="search-section">
                     <input 
                         type="text" 
@@ -150,9 +183,6 @@
                     </div>
                 </div>
 
-                <!-- Source Filter Toggle -->
-                <div id="sourceFilterContainer" class="source-filter-container"></div>
-
                 <div id="loading" class="loading">
                     <div class="spinner"></div>
                     <p>Loading blog posts...</p>
@@ -164,14 +194,6 @@
 
                 <div id="postsContainer" class="posts-grid"></div>
             </main>
-
-            <!-- Right Sidebar: Label Filters -->
-            <aside class="sidebar-right">
-                <h3 class="sidebar-header">🏷️ Categories</h3>
-                <div class="label-filters-section">
-                    <div id="labelFilters" class="label-filters"></div>
-                </div>
-            </aside>
         </div>
     </div>
 
@@ -518,13 +540,13 @@
         </div>
     </footer>
 
-    <script src="auth.js?v=20260222-2"></script>
+    <script src="auth.js?v=20260729-dark"></script>
     <script src="service-name-detector.js"></script>
     <script src="cart-manager.js"></script>
     <script src="cart-ui.js"></script>
-    <script src="app.js?v=20260222-2"></script>
+    <script src="app.js?v=20260729-allcats"></script>
     <script src="profile.js"></script>
-    <script src="kb-editor.js?v=20260226-kb"></script>
+    <script src="kb-editor.js?v=20260729-backfix"></script>
     <script src="chat-widget.js"></script>
     <script src="zoom-mode.js"></script>
 </body>

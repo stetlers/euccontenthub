@@ -1,0 +1,1762 @@
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+/* =====================================================================
+   EUC Content Hub — Cloudscape-inspired theme (STAGING)
+   ---------------------------------------------------------------------
+   A ground-up restyle that mirrors the current AWS Console (Cloudscape
+   Design System): dark top nav, a left side-nav, and white bordered
+   "containers" with headers on a light-grey app canvas.
+
+   IMPORTANT: every element id / class targeted by app-staging.js is
+   preserved. This sheet restyles those hooks; it does not rename them.
+   Production (styles-refined.css / index.html) is untouched.
+   ===================================================================== */
+
+:root {
+    /* Exact Cloudscape "visual refresh" palette, sampled from the AWS demo
+       portal (staging.awseucdemos.com), which uses the real @cloudscape-design
+       component library. */
+    --awsui-blue:        #006ce0;   /* primary action / links (visual-refresh blue) */
+    --awsui-blue-dark:   #002b66;   /* primary hover / dark blue */
+    --awsui-blue-hover:  #002b66;
+    --awsui-blue-accent: #3076fe;
+    --nav-bg:            #0f1b2a;   /* top nav (visual-refresh dark, near #0f141a) */
+    --nav-bg-hover:      #232f3e;
+    --aws-orange:        #ff9900;
+
+    /* Surfaces */
+    --canvas:            #f9f9fa;   /* app background (Cloudscape grey) */
+    --surface:           #ffffff;   /* containers/cards */
+    --surface-alt:       #f9f9fa;
+    --surface-hover:     #f2f8fd;
+
+    /* Text */
+    --text:              #0f141a;   /* body text */
+    --text-secondary:    #424650;
+    --text-muted:        #656871;
+    --text-inverse:      #ffffff;
+    --link:              var(--awsui-blue);
+
+    /* Borders / lines */
+    --border:            #c6c6cd;
+    --border-light:      #dedee3;
+    --divider:           #e9ebed;
+
+    /* Status (Cloudscape status-indicator colors) */
+    --status-green:      #00802f;
+    --status-red:        #d91515;
+    --status-amber:      #855900;
+    --status-blue:       #006ce0;
+
+    /* Radius + shadow — Cloudscape visual refresh uses 16px container radius,
+       8px for buttons/inputs, and a soft one-directional container shadow. */
+    --radius:            16px;
+    --radius-sm:         8px;
+    --shadow-container:  0 1px 8px 2px rgba(0,7,22,.10);
+    --shadow-pop:        0 4px 20px 1px rgba(0,7,22,.20);
+
+    --nav-h:             56px;
+    --sidenav-w:         280px;
+    --font: "Open Sans", "Helvetica Neue", Roboto, Arial, sans-serif;
+
+    /* Aliases so ported components (proposals review, feature proposal)
+       that were authored against the refined theme resolve to console values. */
+    --border-color:      var(--border);
+    --border-hover:      var(--awsui-blue);
+    --card-bg:           var(--surface);
+    --bg-color:          var(--canvas);
+    --text-color:        var(--text);
+    --primary-color:     var(--awsui-blue);
+    --accent-blue:       var(--awsui-blue);
+    --shadow-sm:         0 1px 4px rgba(0,7,22,.08);
+    --shadow:            var(--shadow-container);
+    --shadow-md:         var(--shadow-pop);
+
+    /* Soft-accent pair used by "active" filter pills, chyron, headers */
+    --accent-soft:        #f0f7ff;
+    --accent-soft-border: #b3d3f5;
+    --accent-on-soft:     #0349a8;
+}
+
+/* =====================================================================
+   DARK MODE — mirrors the Cloudscape dark theme on the demos portal.
+   Toggled by adding .dark-mode to <html>; every value here is an override
+   of the light :root palette above, so all variable-driven UI flips.
+   ===================================================================== */
+html.dark-mode {
+    --awsui-blue:        #42b4ff;   /* brighter blue reads better on dark */
+    --awsui-blue-dark:   #89bdee;
+    --awsui-blue-hover:  #89bdee;
+    --awsui-blue-accent: #5a9dff;
+    --nav-bg:            #0f1b2a;   /* nav already dark; keep it */
+    --nav-bg-hover:      #232f3e;
+
+    --canvas:            #0f1b2a;   /* app background */
+    --surface:           #1a2532;   /* containers/cards */
+    --surface-alt:       #232f3e;
+    --surface-hover:     #26313f;
+
+    --text:              #e9ebed;
+    --text-secondary:    #b6bec9;
+    --text-muted:        #8d99a8;
+    --text-inverse:      #ffffff;
+
+    --border:            #3a4553;
+    --border-light:      #2b3746;
+    --divider:           #2b3746;
+
+    --status-green:      #37d067;
+    --status-red:        #ff7a7a;
+    --status-amber:      #e0a838;
+    --status-blue:       #42b4ff;
+
+    --shadow-container:  0 1px 8px 2px rgba(0,0,0,.35);
+    --shadow-pop:        0 4px 20px 1px rgba(0,0,0,.55);
+    --shadow-sm:         0 1px 4px rgba(0,0,0,.35);
+
+    --accent-soft:        #12324f;
+    --accent-soft-border: #1f4d78;
+    --accent-on-soft:     #9ccaf5;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--canvas);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* =====================================================================
+   TOP NAVIGATION BAR
+   The existing header markup (<header> with #authContainer + propose btn
+   + h1 + subtitle) is restyled into a Cloudscape top-nav strip. The h1
+   becomes the service title; the subtitle is tucked into the content
+   area below via .subtitle.
+   ===================================================================== */
+
+.container { max-width: none; margin: 0; padding: 0; }
+
+header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+        "brand   brand   actions";
+    align-items: center;
+    gap: 16px;
+    height: var(--nav-h);
+    padding: 0 20px;
+    background: var(--nav-bg);
+    color: var(--text-inverse);
+    box-shadow: 0 1px 0 0 rgba(0,0,0,.25);
+}
+
+header h1 {
+    grid-area: brand;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .2px;
+    color: var(--text-inverse);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+/* Brand logo (portal cube) in the top nav, matching the demos portal */
+header h1 .brand-logo {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    flex: none;
+    display: block;
+}
+
+/* subtitle moves out of the nav bar into the page body as an intro strip */
+header .subtitle {
+    display: none; /* re-shown inside .main-content via .subtitle below */
+}
+
+.header-right {
+    grid-area: actions;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Theme (dark mode) toggle — square icon button in the nav */
+.btn-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-inverse);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+}
+.btn-theme-toggle:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.6); }
+
+/* Top-nav buttons (propose article, auth) */
+.btn-propose-article {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text-inverse);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+}
+.btn-propose-article:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.6); }
+.propose-icon { font-size: 14px; }
+
+/* Innovation Hub nav button — matches the flat console nav-button treatment.
+   Overrides the gradient pill defined in the legacy refined theme. */
+header .header-right .innovation-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text-inverse);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+    box-shadow: none;
+    transform: none;
+}
+header .header-right .innovation-nav-btn:hover {
+    background: rgba(255,255,255,.12);
+    border-color: rgba(255,255,255,.6);
+    transform: none;
+    box-shadow: none;
+}
+
+/* Auth widget in the top-right of the nav */
+#authContainer .user-menu-btn,
+#authContainer .btn-sign-in {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text-inverse);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+#authContainer .user-menu-btn:hover,
+#authContainer .btn-sign-in:hover { background: rgba(255,255,255,.12); }
+.user-avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--aws-orange);
+    color: var(--nav-bg);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px;
+}
+.user-name { color: var(--text-inverse); font-size: 13px; }
+/* caret glyph in the account button — just a small inline mark, not a popup */
+.user-dropdown { font-size: 10px; opacity: .8; }
+
+/* account button anchors its dropdown */
+.user-profile { position: relative; display: inline-flex; }
+
+/* account dropdown popup */
+.user-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+    z-index: 1200;
+}
+.user-menu-header { padding: 12px 14px; border-bottom: 1px solid var(--divider); background: var(--surface-alt); }
+.user-menu-email { color: var(--text-muted); font-size: 12px; }
+.user-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 14px;
+    font-size: 13px;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+}
+.user-menu-item:hover { background: var(--surface-hover); color: var(--link); }
+
+/* =====================================================================
+   PROPOSALS DROPDOWN — flat nav treatment, matching the top-bar buttons
+   ===================================================================== */
+.proposals-dropdown { position: relative; display: inline-flex; }
+
+.proposals-dropdown-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text-inverse);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+}
+.proposals-dropdown-btn:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.6); }
+
+.proposals-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-pop);
+    padding: 4px;
+    z-index: 1200;
+}
+.proposals-dropdown-menu.show { display: block; }
+
+.proposals-dropdown-menu .dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 9px 12px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background .15s;
+}
+.proposals-dropdown-menu .dropdown-item:hover { background: var(--surface-hover); color: var(--link); }
+
+/* =====================================================================
+   APP LAYOUT — side-nav + content, below the top bar
+   content-wrapper is the flex row; we widen it and restyle the two
+   asides (filters + categories) into one cohesive left side-nav feel.
+   ===================================================================== */
+
+.content-wrapper {
+    display: grid;
+    grid-template-columns: var(--sidenav-w) minmax(0,1fr);
+    gap: 0;
+    align-items: start;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0;
+}
+
+/* Side-nav panels */
+.sidebar-left, .sidebar-right {
+    background: var(--surface);
+    border-right: 1px solid var(--border-light);
+    min-height: calc(100vh - var(--nav-h));
+    padding: 18px 14px;
+    position: sticky;
+    top: var(--nav-h);
+}
+.sidebar-right { border-right: none; border-left: 1px solid var(--border-light); }
+
+.sidebar-header {
+    margin: 0 0 12px;
+    padding: 0 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--divider);
+}
+
+/* Filter stat-cards → side-nav list items */
+.stats { display: flex; flex-direction: column; gap: 2px; }
+.stat-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+}
+.stat-card:hover { background: var(--surface-hover); }
+.stat-card.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-soft-border);
+    box-shadow: inset 3px 0 0 0 var(--awsui-blue);
+}
+.stat-label { order: 1; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+.stat-number {
+    order: 2;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    background: var(--surface-alt);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 1px 9px;
+    min-width: 26px;
+    text-align: center;
+}
+.stat-card.active .stat-number { color: var(--awsui-blue); background: var(--surface); border-color: var(--accent-soft-border); }
+
+/* Category (label) filters in right side-nav */
+.label-filters-section { display: flex; flex-direction: column; }
+.label-filters { display: flex; flex-direction: column; gap: 2px; }
+.label-filter-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: left;
+}
+.label-filter-btn:hover { background: var(--surface-hover); }
+.label-filter-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-soft-border);
+    box-shadow: inset 3px 0 0 0 var(--awsui-blue);
+    color: var(--text);
+    font-weight: 600;
+}
+.label-filter-count {
+    font-size: 12px; font-weight: 700; color: var(--text);
+    background: var(--surface-alt); border: 1px solid var(--border-light);
+    border-radius: 10px; padding: 1px 9px;
+    min-width: 26px; text-align: center;
+}
+.label-filter-clear {
+    margin-top: 8px; padding: 7px 10px; width: 100%;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--link);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.label-filter-clear:hover { background: var(--surface-hover); }
+
+/* =====================================================================
+   MAIN CONTENT
+   ===================================================================== */
+
+.main-content {
+    padding: 20px 24px 48px;
+    min-width: 0;
+}
+
+/* Intro / subtitle strip re-homed under the nav */
+.main-content > .subtitle,
+.subtitle {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 0 0 16px;
+    max-width: 900px;
+}
+
+/* Cloudscape "container": white card, 1px border, subtle shadow, header */
+.search-section,
+.analytics-section,
+#postsContainer {
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-container);
+    padding: 18px 20px;
+    margin-bottom: 20px;
+}
+
+/* Search + toolbar container */
+.search-section { padding: 16px 20px; }
+#searchInput {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    color: var(--text);
+    background: var(--surface);
+    margin-bottom: 12px;
+}
+#searchInput:focus {
+    outline: none;
+    border-color: var(--awsui-blue);
+    box-shadow: 0 0 0 1px var(--awsui-blue);
+}
+.filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.filter-info { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+#filterLabel { font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+.filtered-count {
+    font-size: 12px; font-weight: 700; color: var(--awsui-blue);
+    background: var(--accent-soft); border: 1px solid var(--accent-soft-border); border-radius: 10px; padding: 1px 9px;
+}
+
+/* Cloudscape form controls + buttons */
+#sortBy {
+    height: 32px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+}
+#sortBy:focus { outline: none; border-color: var(--awsui-blue); box-shadow: 0 0 0 1px var(--awsui-blue); }
+
+.btn-crawl, .btn-secondary, .btn-primary,
+.btn-submit-comment, .btn-submit-proposal {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    transition: background .12s, border-color .12s;
+}
+/* Primary (Cloudscape filled blue) */
+.btn-primary, .btn-submit-comment, .btn-submit-proposal, #submitProposal {
+    background: var(--awsui-blue);
+    color: #fff;
+    border-color: var(--awsui-blue);
+}
+.btn-primary:hover, .btn-submit-comment:hover, .btn-submit-proposal:hover, #submitProposal:hover {
+    background: var(--awsui-blue-hover); border-color: var(--awsui-blue-hover);
+}
+/* Normal (Cloudscape bordered) */
+.btn-secondary, .btn-crawl {
+    background: var(--surface);
+    color: var(--awsui-blue);
+    border-color: var(--border);
+}
+.btn-secondary:hover, .btn-crawl:hover { background: var(--surface-hover); border-color: var(--awsui-blue); }
+.pipeline-status { font-size: 12px; color: var(--text-muted); }
+
+/* =====================================================================
+   ANALYTICS — dashboard grid of Cloudscape containers
+   ===================================================================== */
+/* =====================================================================
+   COMMUNITY ANALYTICS — collapsible section (collapsed by default so it
+   doesn't clutter the search-first experience)
+   ===================================================================== */
+.analytics-panel { margin-bottom: 16px; }
+.analytics-panel-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-container);
+    cursor: pointer;
+    text-align: left;
+    transition: background .15s, border-color .15s;
+}
+.analytics-panel-toggle:hover { background: var(--surface-hover); border-color: var(--border); }
+.analytics-panel-caret {
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: transform .18s ease;
+}
+.analytics-panel:not(.collapsed) .analytics-panel-caret { transform: rotate(90deg); }
+.analytics-panel-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.analytics-panel-hint { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+/* Collapse the grid but keep it in the DOM so charts stay initialized. */
+.analytics-panel.collapsed .analytics-section { display: none; }
+.analytics-panel:not(.collapsed) .analytics-section { margin-top: 16px; }
+
+@media (max-width: 640px) { .analytics-panel-hint { display: none; } }
+
+.analytics-section {
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+.chart-container {
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-container);
+    padding: 16px 18px;
+}
+.chart-title {
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    border-bottom: 1px solid var(--divider);
+}
+
+/* =====================================================================
+   PANEL EXPAND — per-chart "expand to full screen" button + overlay.
+   Ported into the console theme; without these the overlay wasn't
+   position:fixed and expanded content dropped to the page bottom.
+   ===================================================================== */
+.panel-expand-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    transition: background .15s, border-color .15s;
+    z-index: 5;
+}
+.panel-expand-btn:hover { background: var(--surface-hover); border-color: var(--awsui-blue); }
+.panel-expand-btn svg { width: 16px; height: 16px; color: var(--text-muted); }
+.panel-expand-btn:hover svg { color: var(--awsui-blue); }
+
+.panel-expand-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+.panel-expand-overlay.visible { display: flex; }
+.panel-expand-overlay.closing { opacity: 0; transition: opacity .2s; }
+
+.panel-expand-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 27, 42, .55);
+    backdrop-filter: blur(2px);
+}
+.panel-expand-content {
+    position: relative;
+    width: 90vw;
+    height: 85vh;
+    max-width: 1400px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-pop);
+}
+.panel-expand-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--divider);
+}
+.panel-expand-title { color: var(--text); font-size: 18px; font-weight: 700; margin: 0; }
+.panel-expand-close {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s, color .15s;
+}
+.panel-expand-close:hover { background: var(--surface-hover); color: var(--text); }
+.panel-expand-controls { padding: 8px 24px; }
+.panel-expand-time-toggle { display: flex; gap: 8px; }
+.time-toggle-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 6px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all .15s;
+}
+.time-toggle-btn:hover { background: var(--surface-hover); border-color: var(--awsui-blue); }
+.time-toggle-btn.active { background: var(--awsui-blue); border-color: var(--awsui-blue); color: #fff; font-weight: 600; }
+.panel-expand-body { flex: 1; padding: 16px 24px; overflow-y: auto; position: relative; }
+.panel-expand-canvas { width: 100% !important; height: 100% !important; }
+.panel-expand-html-content { color: var(--text); }
+.panel-expand-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: var(--text-muted); font-size: 15px;
+}
+.panel-expand-error {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: var(--status-red); gap: 12px;
+}
+.panel-expand-error button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+/* =====================================================================
+   SOURCE FILTER — All Sources / AWS Blog / Builder.AWS.
+   Lives in the left Filters sidebar, styled as a vertical list matching
+   the stat-card filter items above it.
+   ===================================================================== */
+.source-filter-toggle { display: flex; flex-direction: column; gap: 2px; }
+.source-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+}
+.source-filter-btn:hover { background: var(--surface-hover); }
+.source-filter-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-soft-border);
+    box-shadow: inset 3px 0 0 0 var(--awsui-blue);
+    color: var(--text);
+    font-weight: 600;
+}
+.source-filter-icon { font-size: 15px; line-height: 1; flex: none; }
+/* label expands, count pill sits at the right edge like .stat-number */
+.source-filter-btn > span:not(.source-filter-icon):not(.source-filter-count) { flex: 1; }
+.source-filter-count {
+    flex: none;
+    background: var(--surface-alt);
+    color: var(--text);
+    border: 1px solid var(--border-light);
+    padding: 1px 9px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    min-width: 26px;
+    text-align: center;
+}
+.source-filter-btn.active .source-filter-count { background: var(--surface); color: var(--awsui-blue); border-color: var(--accent-soft-border); }
+
+/* Secondary sidebar sub-header (e.g. Source) — a bit more top space */
+.sidebar-header-sub { margin-top: 22px; }
+
+/* =====================================================================
+   SERVICE NAME CHANGE — amber indicator button + tooltip appended to cards
+   ===================================================================== */
+.post-card:has(.service-name-btn:hover) { z-index: 1000 !important; overflow: visible !important; }
+.service-name-btn {
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--status-amber);
+    background: #fff8e6;
+    color: var(--status-amber);
+    cursor: help;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    z-index: 100;
+    transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.service-name-btn:hover {
+    background: #fdecc8;
+    box-shadow: 0 2px 8px rgba(133,89,0,.25);
+    z-index: 1001;
+}
+.service-icon { pointer-events: none; }
+.service-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 8px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-pop);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: nowrap;
+    z-index: 1002;
+    transition: opacity .15s, transform .15s;
+    transform: translateY(6px);
+    pointer-events: none;
+}
+.service-tooltip strong { display: block; margin-bottom: 4px; color: var(--status-amber); font-size: 13px; }
+.service-tooltip em { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+.service-name-btn:hover .service-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+.service-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    right: 14px;
+    border: 6px solid transparent;
+    border-top-color: var(--surface);
+}
+
+/* =====================================================================
+   WHAT'S NEW chyron — Cloudscape "flashbar"-ish strip
+   ===================================================================== */
+.whats-new-chiron {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--accent-soft);
+    border-bottom: 1px solid var(--accent-soft-border);
+    padding: 8px 20px;
+    overflow: hidden;
+}
+.chiron-label {
+    flex: none;
+    font-size: 11px; font-weight: 700; letter-spacing: .6px;
+    color: #fff; background: var(--awsui-blue);
+    padding: 3px 10px; border-radius: 10px;
+}
+.chiron-track-container { overflow: hidden; flex: 1; }
+.chiron-track { display: inline-flex; gap: 40px; white-space: nowrap; }
+
+/* Individual chyron items: badge + title + date, spaced on one line */
+.chiron-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.chiron-item .service-badge {
+    background: rgba(255, 153, 0, .16);
+    color: #855900;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.chiron-item .service-badge.workspaces-personal { background: rgba(168, 85, 247, .16); color: #7c3aed; }
+.chiron-item .service-badge.workspaces-applications { background: rgba(34, 197, 94, .16); color: #15803d; }
+.chiron-item .service-badge.workspaces-core { background: rgba(168, 85, 247, .16); color: #6d28d9; }
+.chiron-item .service-badge.workspaces-secure-browser { background: rgba(59, 130, 246, .16); color: #1d4ed8; }
+.chiron-item .service-badge.workspaces-thin-client { background: rgba(236, 72, 153, .16); color: #be185d; }
+.chiron-item .service-badge.dcv { background: rgba(249, 115, 22, .16); color: #c2410c; }
+
+.chiron-title {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.chiron-title:hover { color: var(--awsui-blue); text-decoration: underline; }
+
+.chiron-date { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+
+/* Speed controls pinned to the right edge of the chyron */
+.chiron-controls {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+    /* fade the track out behind the controls so titles don't collide */
+    padding-left: 8px;
+    background: linear-gradient(to right, transparent, var(--accent-soft) 24%);
+}
+.chiron-speed-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 12px;
+    transition: background .15s, border-color .15s;
+}
+.chiron-speed-btn:hover { background: var(--surface-hover); border-color: var(--awsui-blue); color: var(--awsui-blue); }
+
+/* =====================================================================
+   POST CARDS — restyled flip-cards as Cloudscape "cards"
+   Structure preserved: .post-card > .post-flip-inner >
+   .post-flip-front / .post-flip-back
+   ===================================================================== */
+.posts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    padding: 18px 20px;
+}
+
+.post-card {
+    background: transparent;
+    perspective: 1400px;
+    min-height: 300px;
+    cursor: pointer;
+}
+.post-flip-inner {
+    position: relative;
+    width: 100%;
+    min-height: 300px;
+    transition: transform .5s cubic-bezier(.2,.7,.2,1);
+    transform-style: preserve-3d;
+}
+.post-card.flipped .post-flip-inner { transform: rotateY(180deg); }
+
+.post-flip-front, .post-flip-back {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-container);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.post-flip-front:hover, .post-flip-back:hover { box-shadow: var(--shadow-pop); }
+.post-flip-back { transform: rotateY(180deg); }
+
+.post-status-badge {
+    align-self: flex-start;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 10px;
+}
+.post-status-badge.resolved { background: #eafaea; color: var(--status-green); border: 1px solid #a9e5a9; }
+.post-status-badge.archived { background: #f4f4f4; color: var(--text-muted); border: 1px solid var(--border-light); }
+
+.post-front-title { line-height: 1.3; }
+.post-title-link {
+    font-size: 15px; font-weight: 700; color: var(--awsui-blue-dark);
+}
+.post-title-link:hover { color: var(--awsui-blue); text-decoration: underline; }
+.post-front-author { font-size: 12px; color: var(--text-muted); }
+.post-front-meta { margin-top: auto; }
+
+/* Label badges */
+.label-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 10px;
+    border: 1px solid transparent;
+}
+.label-icon { font-size: 12px; }
+.label-confidence { opacity: .7; font-weight: 600; }
+.label-announcement    { background: #f0f7ff; color: #0349a8; border-color: #b3d3f5; }
+.label-best-practices  { background: #eafaea; color: #037f0c; border-color: #a9e5a9; }
+.label-curation        { background: #fff4e5; color: #8d6a00; border-color: #f0d08a; }
+.label-customer-story  { background: #f7f0ff; color: #6b2fb3; border-color: #d5b8f5; }
+.label-technical-how-to{ background: #e9f6f9; color: #0b6b82; border-color: #a5dbe8; }
+.label-thought-leadership { background: #fdf0f5; color: #9b1d63; border-color: #f2b8d3; }
+
+/* Action buttons row */
+.post-front-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Only when a card has the service-name badge (bottom:14/right:14) do we
+   reserve the bottom-right corner so it doesn't overlap the zoom button. */
+.post-card:has(.service-name-btn) .post-front-actions { padding-right: 44px; }
+.post-action-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 28px; padding: 0 9px;
+    font-size: 12px; font-weight: 600;
+    background: var(--surface); color: var(--text-secondary);
+    border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.post-action-btn:hover:not([disabled]) { background: var(--surface-hover); border-color: var(--border); }
+.post-action-btn[disabled] { opacity: .55; cursor: default; }
+.love-btn.loved { color: var(--status-red); border-color: #f2b8b8; background: #fdeeee; }
+.bookmark-btn.bookmarked { color: var(--aws-orange); border-color: #f0d08a; background: #fff8ec; }
+.cart-btn.in-cart { color: var(--status-green); border-color: #a9e5a9; background: #eafaea; }
+
+/* Relocate the floating cart button. cart.css pins it bottom-left, which now
+   overlaps the left sidebar's Categories list. Move it to the bottom-right,
+   stacked just above the chat button (which sits at bottom:24 / right:24). */
+.cart-floating-btn { left: auto !important; right: 24px !important; bottom: 96px !important; }
+
+/* Card back — richer summary now that cards are taller */
+.post-back-summary {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+    overflow-y: auto;
+    flex: 1;              /* fill the extra height between meta blocks */
+    padding-right: 4px;   /* breathing room for the scrollbar */
+}
+.post-back-summary::before {
+    content: "Summary";
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.post-back-meta { font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 3px; }
+.post-back-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.post-back-tag {
+    font-size: 11px; color: var(--text-secondary);
+    background: var(--surface-alt); border: 1px solid var(--border-light);
+    border-radius: 10px; padding: 2px 8px;
+}
+.post-back-source { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.post-back-link { margin-top: auto; font-size: 13px; font-weight: 700; }
+
+/* =====================================================================
+   LOADING / ERROR
+   ===================================================================== */
+.loading, .error { padding: 40px; text-align: center; color: var(--text-muted); }
+.spinner, .spinner-small {
+    border: 3px solid var(--divider);
+    border-top-color: var(--awsui-blue);
+    border-radius: 50%;
+    width: 28px; height: 28px;
+    animation: spin .8s linear infinite;
+    margin: 0 auto 12px;
+}
+.spinner-small { width: 14px; height: 14px; border-width: 2px; margin: 0; display: inline-block; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { color: var(--status-red); }
+
+/* =====================================================================
+   MODALS — Cloudscape modal styling
+   ===================================================================== */
+.modal {
+    display: none;
+    position: fixed; inset: 0; z-index: 2000;
+    background: rgba(15,27,42,.45);
+    align-items: flex-start; justify-content: center;
+    padding: 60px 16px;
+    overflow-y: auto;
+}
+.modal.active, .modal[style*="block"] { display: flex; }
+.modal-content {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-pop);
+    width: 100%; max-width: 560px;
+    animation: modalIn .18s ease-out;
+}
+.modal-large { max-width: 760px; }
+@keyframes modalIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--divider);
+}
+.modal-header h2 { margin: 0; font-size: 18px; font-weight: 700; color: var(--text); }
+.modal-close {
+    background: transparent; border: none; font-size: 22px;
+    color: var(--text-muted); cursor: pointer; line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+.form-group textarea, #commentText, #proposalInput {
+    width: 100%; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: var(--font); font-size: 14px; resize: vertical;
+}
+.form-group textarea:focus, #commentText:focus, #proposalInput:focus {
+    outline: none; border-color: var(--awsui-blue); box-shadow: 0 0 0 1px var(--awsui-blue);
+}
+.char-count { font-size: 12px; color: var(--text-muted); }
+.comment-form-footer, .proposal-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+
+/* =====================================================================
+   FOOTER (existing inline-styled footer keeps its dark bg; nudge links)
+   ===================================================================== */
+footer a { color: var(--aws-orange) !important; }
+
+/* =====================================================================
+   RESPONSIVE — collapse side-navs on narrow screens
+   ===================================================================== */
+@media (max-width: 1100px) {
+    .content-wrapper { grid-template-columns: 1fr; }
+    .sidebar-left {
+        position: static; min-height: 0;
+        border: none; border-bottom: 1px solid var(--border-light);
+    }
+    .stats, .source-filter-toggle, .label-filters { flex-direction: row; flex-wrap: wrap; }
+    .stat-card, .source-filter-btn, .label-filter-btn { flex: 1 1 140px; }
+    .sidebar-header-sub { margin-top: 14px; }
+}
+@media (max-width: 640px) {
+    header { grid-template-columns: 1fr auto; }
+    header h1 { font-size: 14px; }
+    .propose-text { display: none; }
+    .posts-grid, .analytics-section { grid-template-columns: 1fr; }
+}
+
+/* =====================================================================
+   INNOVATION HUB — full-screen overlay (browse + detail + submission)
+   Self-contained dark modal; ported into the console theme so the
+   #innovation-hub-container .active toggle actually renders.
+   ===================================================================== */
+.innovation-hub-container {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    background: rgba(0, 0, 0, 0.9);
+    overflow-y: auto;
+}
+.innovation-hub-container.active { display: block; }
+
+.innovation-hub-inner { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+.innovation-hub-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+.innovation-hub-header h2 { color: #f1f5f9; margin: 0; }
+.innovation-hub-header-actions { display: flex; gap: 10px; align-items: center; }
+
+.innovation-hub-close {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.innovation-disclaimer {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 8px;
+    padding: 10px 16px;
+    color: #fbbf24;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+}
+
+.innovation-filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.innovation-filters input,
+.innovation-filters select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+}
+.innovation-filters input { flex: 1; min-width: 200px; }
+
+.innovation-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.innovation-card {
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.innovation-card:hover {
+    border-color: rgba(16, 185, 129, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.innovation-card h3 { color: #f1f5f9; margin: 0 0 8px; font-size: 1rem; }
+.innovation-card-desc { color: #94a3b8; font-size: 0.85rem; margin-bottom: 10px; line-height: 1.5; }
+.innovation-card-disclaimer { color: #64748b; font-size: 0.7rem; font-style: italic; margin: 8px 0; }
+.innovation-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.innovation-card-stats { display: flex; gap: 10px; color: #94a3b8; font-size: 0.85rem; }
+
+.innovation-service-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.innovation-service-tag {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.innovation-complexity-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.innovation-complexity-badge.beginner { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.innovation-complexity-badge.intermediate { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.innovation-complexity-badge.advanced { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+.innovation-featured {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+.innovation-featured h3 { color: #f1f5f9; margin: 8px 0; }
+.innovation-featured p { color: #94a3b8; font-size: 0.9rem; }
+.innovation-featured-badge { background: #f59e0b; color: #000; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
+.innovation-featured-meta { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+
+/* Innovation Detail Modal */
+.innovation-detail-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 6000;
+    background: rgba(0, 0, 0, 0.92);
+    overflow-y: auto;
+}
+.innovation-detail-modal.active { display: block; }
+.innovation-detail-inner {
+    max-width: 800px;
+    margin: 40px auto;
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 32px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.innovation-detail-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.innovation-detail-header h2 { color: #f1f5f9; margin: 0; flex: 1; }
+.innovation-detail-close { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; padding: 4px 8px; }
+.innovation-detail-meta { display: flex; gap: 12px; align-items: center; color: #94a3b8; font-size: 0.85rem; margin: 12px 0; }
+.innovation-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.innovation-detail-actions button,
+.innovation-detail-actions a {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+}
+.innovation-detail-actions button:hover { background: rgba(255, 255, 255, 0.12); }
+.innovation-detail-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.innovation-detail-section { margin: 20px 0; }
+.innovation-detail-section h3 { color: #f1f5f9; margin: 0 0 8px; font-size: 1rem; }
+.innovation-detail-section p { color: #cbd5e1; line-height: 1.7; }
+.innovation-mermaid-container { background: #0f172a; border-radius: 8px; padding: 16px; overflow-x: auto; }
+.innovation-code-block { margin: 8px 0; }
+.innovation-code-label { color: #64748b; font-size: 0.8rem; margin-bottom: 4px; }
+.innovation-code-block pre { background: #0f172a; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 0; }
+
+/* Innovation Comments */
+.innovation-comments { margin-top: 24px; }
+.innovation-comments h3 { color: #f1f5f9; margin: 0 0 12px; }
+.innovation-comment {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+}
+.innovation-comment-header { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.innovation-comment-author { color: #60a5fa; font-weight: 600; font-size: 0.85rem; }
+.innovation-comment-time { color: #475569; font-size: 0.8rem; }
+.innovation-comment-text { color: #cbd5e1; font-size: 0.9rem; line-height: 1.5; }
+.innovation-comment-delete { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.85rem; margin-left: auto; }
+.innovation-comment-form { display: flex; gap: 8px; margin-top: 12px; }
+.innovation-comment-form textarea {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    resize: vertical;
+}
+.innovation-comment-form button {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* Innovation Submission Modal */
+.innovation-submission-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 7000;
+    background: rgba(0, 0, 0, 0.92);
+    overflow-y: auto;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+}
+.innovation-submission-modal.active { display: flex; }
+.innovation-submission-inner {
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 640px;
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.innovation-submission-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.innovation-submission-header h2 { color: #f1f5f9; margin: 0; }
+.innovation-submission-close { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; }
+.innovation-form-group { margin-bottom: 16px; }
+.innovation-form-group label { display: block; color: #e2e8f0; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+.innovation-form-group input,
+.innovation-form-group textarea,
+.innovation-form-group select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+.innovation-form-error { color: #ef4444; font-size: 0.8rem; margin-top: 4px; display: none; }
+.innovation-form-group.has-error .innovation-form-error { display: block; }
+.innovation-form-group.has-error input,
+.innovation-form-group.has-error textarea { border-color: #ef4444; }
+.innovation-complexity-radios { display: flex; gap: 16px; }
+.innovation-complexity-radios label { display: flex; align-items: center; gap: 4px; font-weight: 400; cursor: pointer; }
+.innovation-submit-btn {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 700;
+    width: 100%;
+    transition: all 0.2s;
+}
+.innovation-submit-btn:hover { box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
+.innovation-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.innovation-add-snippet {
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px dashed rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+    font-size: 0.85rem;
+}
+.innovation-snippet-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    position: relative;
+}
+.innovation-snippet-item select { width: auto; margin-bottom: 8px; }
+.innovation-snippet-item textarea { width: 100%; font-family: monospace; }
+.innovation-snippet-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(239, 68, 68, 0.15);
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+.innovation-empty { text-align: center; color: #64748b; padding: 40px; font-size: 0.9rem; }
+
+/* =====================================================================
+   FEATURE PROPOSAL MODAL — light form fields (input/select/textarea)
+   The base .form-group only styles textarea; the feature form also uses
+   inputs and selects, so restore full field styling here.
+   ===================================================================== */
+.feature-proposal-modal .modal-content { max-width: 600px; }
+.feature-proposal-form { display: flex; flex-direction: column; gap: 4px; padding: 20px; }
+.feature-proposal-modal .form-group { margin-bottom: 16px; }
+.feature-proposal-modal .form-group label {
+    display: block;
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: var(--text);
+}
+.feature-proposal-modal .form-group input,
+.feature-proposal-modal .form-group textarea,
+.feature-proposal-modal .form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font);
+    font-size: 14px;
+    box-sizing: border-box;
+    background: var(--surface);
+    color: var(--text);
+}
+.feature-proposal-modal .form-group input:focus,
+.feature-proposal-modal .form-group textarea:focus,
+.feature-proposal-modal .form-group select:focus {
+    outline: none;
+    border-color: var(--awsui-blue);
+    box-shadow: 0 0 0 1px var(--awsui-blue);
+}
+.feature-proposal-modal .field-hint { font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.feature-proposal-modal .char-counter { text-align: right; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.submit-feature-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    align-self: flex-start;
+    padding: 10px 20px;
+    background: var(--awsui-blue);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .15s;
+}
+.submit-feature-btn:hover { background: var(--awsui-blue-dark); }
+.feature-proposal-result { padding: 20px; }
+
+/* =====================================================================
+   COMMUNITY PROPOSALS REVIEW MODAL
+   ===================================================================== */
+.proposals-review-content {
+    max-width: 760px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 120px);
+}
+
+/* Status filter tabs */
+.proposals-filter-tabs { display: flex; gap: 8px; padding: 16px 24px 0; flex-wrap: wrap; }
+.filter-tab {
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+}
+.filter-tab:hover { border-color: var(--awsui-blue); color: var(--text); }
+.filter-tab.active { background: var(--awsui-blue); border-color: var(--awsui-blue); color: #fff; }
+
+/* Type filter (article / feature) */
+.proposals-type-filter { display: flex; gap: 8px; padding: 12px 24px 0; flex-wrap: wrap; }
+.type-filter-btn {
+    padding: 5px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+}
+.type-filter-btn:hover { border-color: var(--awsui-blue); color: var(--text); }
+.type-filter-btn.active { background: var(--awsui-blue); border-color: var(--awsui-blue); color: #fff; }
+
+/* Disclaimer banner */
+.proposals-disclaimer {
+    margin: 16px 24px 0;
+    padding: 10px 14px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+}
+.proposals-disclaimer p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+/* List container */
+.proposals-list {
+    padding: 16px 24px 24px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.proposals-loading,
+.proposals-empty { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 14px; }
+
+/* Proposal card */
+.proposal-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: box-shadow .15s, border-color .15s;
+}
+.proposal-card:hover { border-color: var(--awsui-blue); box-shadow: var(--shadow-container); }
+.proposal-card-expanded { border-color: var(--awsui-blue); box-shadow: var(--shadow-pop); cursor: default; }
+.proposal-card-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.proposal-card-title-row { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; min-width: 0; }
+.proposal-card-title {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--awsui-blue);
+    overflow-wrap: break-word;
+}
+.proposal-card-snippet { margin: 0 0 12px; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.proposal-card-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.proposal-card-meta { display: flex; flex-direction: column; font-size: 12px; color: var(--text-muted); }
+.proposal-card-author { font-weight: 600; color: var(--text-secondary); }
+.proposal-card-actions { display: flex; align-items: center; gap: 6px; }
+.proposal-card-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+}
+.proposal-card-actions button:hover:not(:disabled) { border-color: var(--awsui-blue); background: var(--surface-hover); }
+.proposal-upvote-btn:hover:not(:disabled) { border-color: #22c55e; color: #16a34a; }
+.proposal-downvote-btn:hover:not(:disabled) { border-color: #ef4444; color: #dc2626; }
+.proposal-card-actions button.already-voted,
+.proposal-card-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.proposal-delete-btn-inline { border-color: transparent !important; }
+.proposal-delete-btn-inline:hover { border-color: #ef4444 !important; color: #dc2626; }
+.proposal-expand-hint { margin-top: 10px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* Status & type badges */
+.status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: capitalize;
+    white-space: nowrap;
+}
+.status-badge.status-pending { background: #fef3c7; color: #92400e; }
+.status-badge.status-approved { background: #dcfce7; color: #166534; }
+.status-badge.status-rejected { background: #fee2e2; color: #991b1b; }
+.feature-request-badge,
+.service-tag,
+.priority-tag,
+.proposal-card-category {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.feature-request-badge { background: #ede9fe; color: #6d28d9; }
+.service-tag { background: #e0f2fe; color: #075985; }
+.priority-tag { background: var(--surface-alt); color: var(--text-secondary); }
+.proposal-card-category { background: var(--canvas); color: var(--text-secondary); border: 1px solid var(--border); }
+
+/* Expanded details */
+.proposal-expanded-details { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: default; }
+.proposal-full-description h4,
+.proposal-detail-section h4,
+.proposal-comments-section h4 { margin: 0 0 6px; font-size: 14px; color: var(--awsui-blue); }
+.proposal-detail-section,
+.proposal-full-description { margin-bottom: 14px; }
+.proposal-detail-section p,
+.proposal-full-description p { margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.55; }
+.proposal-topics { display: flex; flex-wrap: wrap; gap: 6px; }
+.topic-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    background: var(--canvas);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Comments / feedback */
+.proposal-comments-section { margin-top: 16px; }
+.proposal-comments-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.proposal-comment { padding: 10px 12px; background: var(--canvas); border-radius: var(--radius-sm); }
+.proposal-comment-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.proposal-comment-author { font-weight: 600; font-size: 13px; color: var(--text-secondary); }
+.proposal-comment-date { font-size: 11px; color: var(--text-muted); }
+.proposal-comment-text { margin: 0; font-size: 14px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; }
+.no-comments-yet { margin: 0 0 12px; font-size: 14px; color: var(--text-muted); font-style: italic; }
+.proposal-comment-form { display: flex; flex-direction: column; gap: 8px; }
+.proposal-comment-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+}
+.proposal-comment-input:focus { outline: none; border-color: var(--awsui-blue); box-shadow: 0 0 0 1px var(--awsui-blue); }
+.proposal-comment-submit { align-self: flex-end; }
+.proposal-actions-bar { margin-top: 14px; text-align: right; }
+.proposal-delete-btn {
+    padding: 6px 14px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+}
+.proposal-delete-btn:hover { background: #fee2e2; border-color: #f87171; }
+
+@media (max-width: 600px) {
+    .proposal-card-footer { flex-direction: column; align-items: flex-start; }
+    .proposal-card-actions { flex-wrap: wrap; }
+}
+
+/* =====================================================================
+   DARK MODE — targeted overrides for tinted badges / states that use
+   hardcoded pale backgrounds with dark text (unreadable on dark). We
+   re-tint to translucent color washes with light text.
+   ===================================================================== */
+/* Category label badges */
+html.dark-mode .label-announcement    { background: rgba(66,180,255,.16);  color: #8fccff; border-color: rgba(66,180,255,.35); }
+html.dark-mode .label-best-practices  { background: rgba(55,208,103,.16);  color: #7fe0a0; border-color: rgba(55,208,103,.35); }
+html.dark-mode .label-curation        { background: rgba(224,168,56,.16);  color: #e8c477; border-color: rgba(224,168,56,.35); }
+html.dark-mode .label-customer-story  { background: rgba(168,120,255,.18); color: #c4a6ff; border-color: rgba(168,120,255,.38); }
+html.dark-mode .label-technical-how-to{ background: rgba(56,190,220,.16);  color: #7fd4e8; border-color: rgba(56,190,220,.35); }
+html.dark-mode .label-thought-leadership { background: rgba(240,120,180,.16); color: #f0a8cc; border-color: rgba(240,120,180,.35); }
+
+/* Post status + action-button "on" states */
+html.dark-mode .post-status-badge.resolved { background: rgba(55,208,103,.16); color: #7fe0a0; border-color: rgba(55,208,103,.35); }
+html.dark-mode .post-status-badge.archived { background: var(--surface-alt); color: var(--text-muted); border-color: var(--border); }
+html.dark-mode .love-btn.loved     { color: #ff9d9d; border-color: rgba(255,122,122,.4); background: rgba(255,122,122,.14); }
+html.dark-mode .bookmark-btn.bookmarked { color: var(--aws-orange); border-color: rgba(255,153,0,.4); background: rgba(255,153,0,.14); }
+html.dark-mode .cart-btn.in-cart   { color: #7fe0a0; border-color: rgba(55,208,103,.4); background: rgba(55,208,103,.14); }
+
+/* Service name change badge (amber) */
+html.dark-mode .service-name-btn { background: rgba(224,168,56,.16); }
+html.dark-mode .service-name-btn:hover { background: rgba(224,168,56,.28); }
+
+/* Proposals: status + type badges, disclaimer, delete button */
+html.dark-mode .status-badge.status-pending  { background: rgba(224,168,56,.18); color: #e8c477; }
+html.dark-mode .status-badge.status-approved  { background: rgba(55,208,103,.18); color: #7fe0a0; }
+html.dark-mode .status-badge.status-rejected  { background: rgba(255,122,122,.18); color: #ff9d9d; }
+html.dark-mode .feature-request-badge { background: rgba(168,120,255,.2); color: #c4a6ff; }
+html.dark-mode .service-tag { background: rgba(66,180,255,.16); color: #8fccff; }
+html.dark-mode .proposal-delete-btn { background: rgba(255,122,122,.12); border-color: rgba(255,122,122,.4); color: #ff9d9d; }
+html.dark-mode .proposal-delete-btn:hover { background: rgba(255,122,122,.22); }
+
+/* Innovation Hub overlay is already dark in both themes; nudge its cards to
+   sit on our dark surface rather than the fixed slate so it feels unified. */
+html.dark-mode .innovation-card,
+html.dark-mode .innovation-detail-inner,
+html.dark-mode .innovation-submission-inner { background: var(--surface); border-color: var(--border); }

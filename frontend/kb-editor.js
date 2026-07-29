@@ -34,6 +34,16 @@ class KBEditor {
             return;
         }
 
+        // Remove any existing KB editor modal so "← Back" (which re-calls
+        // showEditor) reuses a single modal instead of stacking a new one on
+        // top of the old. Stacking left a stale .kb-editor-modal in the DOM,
+        // and showEditorInterface's querySelector then targeted that hidden
+        // copy — making the visible list's cards appear to do nothing.
+        const existing = document.querySelector('.kb-editor-modal');
+        if (existing) {
+            existing.remove();
+        }
+
         // Create modal
         const modal = document.createElement('div');
         modal.className = 'modal kb-editor-modal';

@@ -1,4 +1,4 @@
-// Authentication Module for EUC Content Hub - STAGING
+// Authentication Module for Amazon WorkSpaces Community Hub - STAGING
 // Handles Cognito OAuth flow and user session management
 
 const AUTH_CONFIG = {
@@ -257,6 +257,9 @@ class AuthManager {
                             <button class="user-menu-item" id="kbEditorBtn">
                                 <span>📚</span> Edit Knowledge Base
                             </button>
+                            <button class="user-menu-item" id="tourBtn">
+                                <span>🗺️</span> Take the Tour
+                            </button>
                             <button class="user-menu-item" id="signOutBtn">
                                 <span>🚪</span> Sign Out
                             </button>
@@ -288,6 +291,15 @@ class AuthManager {
                     } else {
                         console.error('KB Editor not initialized');
                     }
+                });
+                
+                // Tour button click handler
+                document.getElementById('tourBtn').addEventListener('click', () => {
+                    if (window.interactiveTour) {
+                        window.interactiveTour.open();
+                    }
+                    const menu = document.getElementById('userMenu');
+                    if (menu) menu.style.display = 'none';
                 });
                 
                 // Close menu when clicking outside

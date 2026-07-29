@@ -38,13 +38,18 @@ FRONTEND_FILES = [
     'cart-ui.js',
     'chat-widget.js',
     'chat-widget.css',
+    'chat-widget-kb.js',
+    'chat-widget-kb-styles.css',
     'kb-editor.js',
     'kb-editor-styles.css',
     'styles.css',
-    'styles-refined.css',  # Refined theme for staging
+    'styles-refined.css',  # Refined theme (production)
+    'styles-console.css',  # Cloudscape/AWS-Console theme (staging)
     'zoom-mode.js',
     'zoom-mode.css',
-    'service-name-detector.js'
+    'service-name-detector.js',
+    'portal_logo.png',  # Brand logo (matches demos portal)
+    'favicon.ico'       # Browser tab icon
 ]
 
 # Additional files to deploy (not in frontend/ directory)
@@ -64,7 +69,8 @@ def get_content_type(filename):
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
         'gif': 'image/gif',
-        'svg': 'image/svg+xml'
+        'svg': 'image/svg+xml',
+        'ico': 'image/x-icon'
     }
     return content_types.get(ext, 'application/octet-stream')
 
