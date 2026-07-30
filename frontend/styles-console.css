@@ -1760,3 +1760,164 @@ html.dark-mode .proposal-delete-btn:hover { background: rgba(255,122,122,.22); }
 html.dark-mode .innovation-card,
 html.dark-mode .innovation-detail-inner,
 html.dark-mode .innovation-submission-inner { background: var(--surface); border-color: var(--border); }
+
+/* ============================================================
+   Welcome Gate — full-screen sign-in landing for signed-out
+   visitors (staging). Mirrors the internal demo-portal login.
+   ============================================================ */
+
+/* Lock scroll on the page beneath the gate. */
+body.welcome-gate-active { overflow: hidden; }
+
+.welcome-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    /* Cloudscape console gradient: deep navy → canvas blue. */
+    background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(0, 108, 224, 0.28), transparent 60%),
+        linear-gradient(180deg, var(--awsui-blue-dark) 0%, #001229 100%);
+    animation: welcome-gate-fade 0.35s ease-out;
+}
+
+@keyframes welcome-gate-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.welcome-gate-card {
+    width: 100%;
+    max-width: 460px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px 36px 36px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+    text-align: center;
+    animation: welcome-gate-rise 0.4s ease-out;
+}
+
+@keyframes welcome-gate-rise {
+    from { transform: translateY(14px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+.welcome-gate-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    margin-bottom: 18px;
+}
+
+.welcome-gate-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 10px;
+    line-height: 1.25;
+}
+
+.welcome-gate-subtitle {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin: 0 0 28px;
+    line-height: 1.5;
+}
+
+.welcome-gate-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.welcome-gate-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 16px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.welcome-gate-btn:hover:not(:disabled) {
+    border-color: var(--awsui-blue);
+    background: var(--surface-hover);
+    box-shadow: 0 4px 14px rgba(0, 108, 224, 0.18);
+    transform: translateY(-1px);
+}
+
+.welcome-gate-btn-primary {
+    border-color: var(--awsui-blue);
+    background: var(--awsui-blue);
+    color: var(--text-inverse);
+}
+
+.welcome-gate-btn-primary:hover:not(:disabled) {
+    background: var(--awsui-blue-hover);
+    border-color: var(--awsui-blue-hover);
+}
+
+.welcome-gate-btn-primary .welcome-gate-btn-desc { color: rgba(255, 255, 255, 0.82); }
+
+.welcome-gate-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.welcome-gate-btn-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.welcome-gate-btn-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.welcome-gate-btn-label {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.welcome-gate-btn-desc {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.welcome-gate-badge {
+    margin-left: auto;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-on-soft);
+    border: 1px solid var(--accent-soft-border);
+}
+
+.welcome-gate-footer {
+    margin-top: 26px;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 520px) {
+    .welcome-gate-card { padding: 32px 22px 28px; }
+    .welcome-gate-title { font-size: 1.3rem; }
+}

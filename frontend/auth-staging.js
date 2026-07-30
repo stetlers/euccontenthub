@@ -3,10 +3,18 @@
 
 const AUTH_CONFIG = {
     userPoolId: 'us-east-1_MOvNrTnua',
-    clientId: '3pv5jf235vj14gu148b9vjt3od',
+    // STAGING uses a dedicated Cognito app client wired to Amazon Federate
+    // (employee SSO) so we can match the internal demo-portal login WITHOUT
+    // touching the shared production client (3pv5jf235vj14gu148b9vjt3od), which
+    // stays on Google. Production auth.js is unaffected.
+    clientId: '7v0tr8fb006f2n0dfia47e3jk',
     domain: 'euc-content-hub.auth.us-east-1.amazoncognito.com',
     redirectUri: 'https://staging.awseuccontent.com/callback',  // STAGING URL
-    region: 'us-east-1'
+    region: 'us-east-1',
+    // Name of the Amazon Federate OIDC provider on the Cognito app client.
+    // Deep-links the sign-in button straight to Federate (one-click employee
+    // login, no Hosted-UI provider chooser). Empty = fall back to the chooser.
+    idpName: 'FederateOIDCInteg'
 };
 
 class AuthManager {
@@ -38,7 +46,15 @@ class AuthManager {
             scope: 'email openid profile',
             redirect_uri: AUTH_CONFIG.redirectUri
         });
-        
+
+        // If a specific IdP is configured, deep-link straight to it via the
+        // /oauth2/authorize endpoint so users skip the Hosted-UI provider
+        // chooser and land on the Federate (employee SSO) login directly.
+        if (AUTH_CONFIG.idpName) {
+            params.set('identity_provider', AUTH_CONFIG.idpName);
+            return `https://${AUTH_CONFIG.domain}/oauth2/authorize?${params.toString()}`;
+        }
+
         return `https://${AUTH_CONFIG.domain}/login?${params.toString()}`;
     }
     
@@ -311,7 +327,10 @@ class AuthManager {
                     }
                 });
             });
-            
+
+            // Signed in: tear down the welcome gate so the hub is visible.
+            this.removeWelcomeGate();
+
         } else {
             // Show sign in button
             authContainer.innerHTML = `
@@ -319,10 +338,13 @@ class AuthManager {
                     <span>🔐</span> Sign In
                 </button>
             `;
-            
+
             document.getElementById('signInBtn').addEventListener('click', () => {
                 this.signIn();
             });
+
+            // Signed out: gate the hub behind a full-screen welcome page.
+            this.renderWelcomeGate();
         }
         
         // Trigger app-level auth UI updates
@@ -331,6 +353,59 @@ class AuthManager {
         }
     }
     
+    // Render the full-screen welcome gate shown to signed-out visitors.
+    // Blocks access to the hub until the user authenticates (matches the
+    // internal demo-portal experience). Idempotent — safe to call repeatedly.
+    renderWelcomeGate() {
+        if (document.getElementById('welcomeGate')) return;
+
+        const gate = document.createElement('div');
+        gate.id = 'welcomeGate';
+        gate.className = 'welcome-gate';
+        gate.innerHTML = `
+            <div class="welcome-gate-card">
+                <img src="portal_logo.png?v=20260729" alt="" class="welcome-gate-logo" aria-hidden="true">
+                <h1 class="welcome-gate-title">Amazon WorkSpaces Community Hub</h1>
+                <p class="welcome-gate-subtitle">
+                    Your hub for End User Computing content, discussions, and community knowledge.
+                    Sign in to continue.
+                </p>
+                <div class="welcome-gate-options">
+                    <button class="welcome-gate-btn welcome-gate-btn-primary" id="gateInternalBtn">
+                        <span class="welcome-gate-btn-icon">🛡️</span>
+                        <span class="welcome-gate-btn-text">
+                            <span class="welcome-gate-btn-label">Amazon Employee</span>
+                            <span class="welcome-gate-btn-desc">Sign in with Midway (internal)</span>
+                        </span>
+                    </button>
+                    <button class="welcome-gate-btn welcome-gate-btn-secondary" id="gatePartnerBtn" disabled>
+                        <span class="welcome-gate-btn-icon">🤝</span>
+                        <span class="welcome-gate-btn-text">
+                            <span class="welcome-gate-btn-label">Partner</span>
+                            <span class="welcome-gate-btn-desc">Coming soon</span>
+                        </span>
+                        <span class="welcome-gate-badge">Soon</span>
+                    </button>
+                </div>
+            </div>
+            <div class="welcome-gate-footer">Amazon WorkSpaces Community Hub — Staging</div>
+        `;
+
+        document.body.appendChild(gate);
+        document.body.classList.add('welcome-gate-active');
+
+        document.getElementById('gateInternalBtn').addEventListener('click', () => {
+            this.signIn();
+        });
+    }
+
+    // Remove the welcome gate (called once the user is authenticated).
+    removeWelcomeGate() {
+        const gate = document.getElementById('welcomeGate');
+        if (gate) gate.remove();
+        document.body.classList.remove('welcome-gate-active');
+    }
+
     async fetchDisplayName() {
         try {
             // Get API endpoint (defined in app.js or use window global)
