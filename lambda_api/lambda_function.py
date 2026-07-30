@@ -118,6 +118,19 @@ COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'us-east-1_MOvNrTn
 
 COGNITO_APP_CLIENT_ID = os.environ.get('COGNITO_APP_CLIENT_ID', '3pv5jf235vj14gu148b9vjt3od')
 
+# Allowed token audiences (Cognito app client IDs). Both stages (prod + staging)
+# share this Lambda ($LATEST), so we accept tokens from either client of the
+# SAME user pool: the shared web client (Google, prod + staging) and the staging
+# Federate client (employee SSO). Both are gated by signature + issuer checks
+# against the one pool, so accepting both audiences is not a security downgrade.
+# Override via COGNITO_APP_CLIENT_IDS (comma-separated) if needed.
+COGNITO_ALLOWED_CLIENT_IDS = {
+    cid.strip() for cid in os.environ.get(
+        'COGNITO_APP_CLIENT_IDS',
+        f'{COGNITO_APP_CLIENT_ID},7v0tr8fb006f2n0dfia47e3jk'
+    ).split(',') if cid.strip()
+}
+
 
 
 # Cognito JWKS URL
@@ -1434,7 +1447,7 @@ def validate_jwt_token(token):
 
         # ID tokens carry 'aud'; access tokens carry 'client_id'.
         aud = decoded.get('aud') or decoded.get('client_id')
-        if aud != COGNITO_APP_CLIENT_ID:
+        if aud not in COGNITO_ALLOWED_CLIENT_IDS:
             raise Exception('Invalid audience')
 
         token_use = decoded.get('token_use')
