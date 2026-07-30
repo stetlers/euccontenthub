@@ -78,6 +78,40 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(obj)
 
 
+def _clean_summary(text):
+    """Strip stray markdown/labels the model sometimes prepends.
+
+    Claude Haiku 4.5 occasionally leads with a heading or label (e.g.
+    '# Summary', '## Summary', '**Summary**', 'Summary:') despite the prompt.
+    The card renders the summary as PLAIN TEXT above its own "SUMMARY" label,
+    so such a prefix shows literally and duplicates the label. Remove a single
+    leading heading/label line, then any leftover 'Summary:'-style prefix.
+    """
+    if not text:
+        return text
+    s = text.strip()
+
+    # Drop a leading markdown-heading / bold-label line that is just a title
+    # (e.g. "# Summary", "## Overview", "**Summary**") followed by the body.
+    lines = s.split('\n', 1)
+    first = lines[0].strip()
+    stripped_first = first.lstrip('#* ').rstrip('*: ').strip()
+    is_label_line = (
+        (first.startswith('#') or (first.startswith('**') and first.endswith('**')))
+        and len(stripped_first.split()) <= 3
+    )
+    if is_label_line and len(lines) > 1:
+        s = lines[1].strip()
+
+    # Remove a residual leading "Summary:" / "Summary -" prefix, if any.
+    for prefix in ('Summary:', 'Summary -', 'Summary –', 'SUMMARY:'):
+        if s.lower().startswith(prefix.lower()):
+            s = s[len(prefix):].strip()
+            break
+
+    return s
+
+
 def generate_summary(title, content, max_retries=5):
     """
     Generate a 2-3 sentence summary using AWS Bedrock with exponential backoff
@@ -105,6 +139,8 @@ Blog Content:
 
 Task: Write a 2-3 sentence summary that captures the main topic and key takeaways of this blog post. Focus on what the post teaches or demonstrates. Be concise and technical.
 
+Output ONLY the summary sentences as plain text. Do not add a heading, title, label, markdown formatting, or a "Summary:" prefix.
+
 Summary:"""
 
     request_body = {
@@ -130,8 +166,8 @@ Summary:"""
             # Parse response
             response_body = json.loads(response['body'].read())
             summary = response_body['content'][0]['text'].strip()
-            
-            return summary
+
+            return _clean_summary(summary)
             
         except Exception as e:
             error_str = str(e)
