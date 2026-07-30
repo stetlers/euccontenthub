@@ -72,7 +72,6 @@ crawler_package/typing_extensions.py
 crawler_package/typing_extensions-*.dist-info/
 crawler_package/urllib3/
 crawler_package/urllib3-*.dist-info/
-crawler_package/euc_filter/
 
 # One-off run artifacts (specific files, not all *.json)
 output.json
