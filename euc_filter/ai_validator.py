@@ -107,6 +107,30 @@ def _call_bedrock_with_retry(prompt: str) -> dict[str, Any] | None:
     return None
 
 
+def _extract_json(text: str) -> str:
+    """Pull a bare JSON object out of a model text response.
+
+    Claude Haiku 4.5 often wraps its JSON in a markdown code fence
+    (```json ... ```) or adds prose around it, which breaks a naive
+    json.loads. Strip a leading/trailing fence, then fall back to slicing
+    from the first '{' to the last '}'.
+    """
+    s = text.strip()
+    if s.startswith("```"):
+        # Drop the opening fence line (``` or ```json) and any closing fence.
+        s = s.split("\n", 1)[1] if "\n" in s else s[3:]
+        if s.rstrip().endswith("```"):
+            s = s.rstrip()[:-3]
+        s = s.strip()
+    # Fall back to the outermost braces if there's still surrounding prose.
+    if not s.startswith("{"):
+        start = s.find("{")
+        end = s.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            s = s[start : end + 1]
+    return s
+
+
 def _parse_ai_response(response_body: dict[str, Any]) -> ValidationResult:
     """Extract score and explanation from a Bedrock Claude Messages API response.
 
@@ -115,7 +139,7 @@ def _parse_ai_response(response_body: dict[str, Any]) -> ValidationResult:
     try:
         # Claude Messages API returns content as a list of blocks
         text = response_body["content"][0]["text"]
-        parsed = json.loads(text)
+        parsed = json.loads(_extract_json(text))
         raw_score = float(parsed["score"])
         explanation = str(parsed.get("explanation", ""))
 
