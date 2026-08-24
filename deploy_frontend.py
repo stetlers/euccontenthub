@@ -48,6 +48,7 @@ FRONTEND_FILES = [
     'zoom-mode.js',
     'zoom-mode.css',
     'service-name-detector.js',
+    'riv26-demo.js',    # re:Invent 2026 demo launcher (staging nav button + overlay)
     'portal_logo.png',  # Brand logo (matches demos portal)
     'favicon.ico'       # Browser tab icon
 ]
@@ -55,6 +56,13 @@ FRONTEND_FILES = [
 # Additional files to deploy (not in frontend/ directory)
 ADDITIONAL_FILES = [
     'euc-service-name-mapping.json'
+]
+
+# Directory bundles under frontend/ to deploy recursively, preserving structure.
+# Self-contained static bundles (own HTML/CSS/JS) that can't be flattened into
+# FRONTEND_FILES because they rely on relative asset paths.
+FRONTEND_DIRS = [
+    'riv26demo'  # re:Invent 2026 interactive demo (index.html + assets/)
 ]
 
 def get_content_type(filename):
@@ -160,7 +168,46 @@ def deploy_frontend(environment):
             print(f"     Error: {str(e)}")
     
     print(f"\n✅ Uploaded {uploaded_count}/{len(FRONTEND_FILES)} files")
-    
+
+    # Upload directory bundles, preserving their internal structure
+    for dirname in FRONTEND_DIRS:
+        bundle_dir = frontend_dir / dirname
+
+        if not bundle_dir.is_dir():
+            print(f"\n  ⚠️  Warning: frontend/{dirname}/ not found, skipping")
+            continue
+
+        print(f"\nUploading {dirname}/ bundle...")
+        bundle_files = sorted(p for p in bundle_dir.rglob('*') if p.is_file())
+        bundle_uploaded = 0
+
+        for file_path in bundle_files:
+            # S3 key mirrors the path relative to frontend/, with forward slashes
+            key = file_path.relative_to(frontend_dir).as_posix()
+
+            try:
+                content_type = get_content_type(file_path.name)
+                print(f"  📤 Uploading {key}... ", end='', flush=True)
+
+                s3.upload_file(
+                    str(file_path),
+                    bucket,
+                    key,
+                    ExtraArgs={
+                        'ContentType': content_type,
+                        'CacheControl': 'max-age=300'  # 5 minutes cache
+                    }
+                )
+
+                print("✅")
+                bundle_uploaded += 1
+
+            except Exception as e:
+                print(f"❌")
+                print(f"     Error: {str(e)}")
+
+        print(f"✅ Uploaded {bundle_uploaded}/{len(bundle_files)} files from {dirname}/")
+
     # Upload additional files (from root directory)
     print("\nUploading additional files...")
     additional_uploaded = 0

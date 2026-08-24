@@ -4,7 +4,7 @@ inclusion: auto
 
 # Feature Registry & Regression Prevention
 
-This file documents every active feature in the EUC Content Hub, which files it touches, and what to verify after changes. Use this as a checklist when building new features to avoid regressions.
+This file documents every active feature in the Amazon WorkSpaces Community Hub, which files it touches, and what to verify after changes. Use this as a checklist when building new features to avoid regressions.
 
 ## CRITICAL RULES
 
@@ -132,6 +132,12 @@ This file documents every active feature in the EUC Content Hub, which files it 
 - **Verify**: "Promote to Proposal" button visible on own published innovations (not already promoted), path selection modal (Article vs Feature), AI refinement returns pre-filled form, review/edit form submits correctly, proposal created with `source_innovation_id` and `architecture_diagram_url`, innovation marked with `promoted_to_proposal_id`, "📤 Promoted" badge on innovation cards, "View Proposal" link on promoted innovations, diagram PNG renders in proposal detail with download button, code snippets carry forward, "Promoted from Innovation Hub" badge on proposals
 - **Dependencies**: Authentication required, Bedrock for AI content refinement, S3 for diagram PNG storage (diagrams/ prefix), mermaid.ink API for Mermaid-to-PNG conversion, DynamoDB `innovations` and `proposed-articles` tables, IAM DiagramUploadPolicy on Lambda role
 
+### 24. re:Invent 2026 Interactive Demo (staging only)
+- **Files**: `riv26-demo.js` (`Riv26Demo` class), `riv26demo/` (self-contained bundle: `index.html` + `assets/css/{engine,theme}.css` + `assets/js/engine.js` + `assets/js/chapters/ch1-9.js`), `styles-console.css`, `index-staging.html` (`#riv26DemoBtn` + script tag), `deploy_frontend.py` (`FRONTEND_DIRS`)
+- **Verify**: "🎬 Demo" button sits to the right of Propose Article / Proposals ▾ in the top bar and is visible signed out; click opens a full-screen overlay whose iframe loads `riv26demo/index.html`; demo title and Act 1–3 cards render; Restart reloads the demo; Close and Escape dismiss it and restore page scroll
+- **Dependencies**: None — no auth, no API, no CDN. The bundle is fully self-contained and loads lazily on first open. It runs in an iframe so its `engine.css`/`theme.css` cannot collide with `styles-console.css`.
+- **Note**: Staging only; `index.html` (production) does not reference it. `deploy_frontend.py` uploads directory bundles via `FRONTEND_DIRS`, preserving relative asset paths — a new nested bundle will not deploy unless it's listed there.
+
 ### 21. Legal Modals (Privacy, Terms, Data Deletion)
 - **Files**: `app.js` (`setupPrivacyModal`, `setupTermsModal`, `setupDataDeletionModal`), `index.html`
 - **Verify**: Footer links open modals with legal text
@@ -159,3 +165,4 @@ After any deployment, verify these core flows:
 - [ ] Dashboard charts render
 - [ ] Innovation Hub opens, cards render, detail view works
 - [ ] Promote button visible on own innovations, promotion flow creates proposal with diagram
+- [ ] (Staging) Demo button opens the re:Invent 2026 demo overlay; Close/Escape restores the hub

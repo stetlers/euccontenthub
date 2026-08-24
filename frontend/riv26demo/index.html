@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Amazon WorkSpaces: From Zero to Agentic — re:Invent 2026 Interactive Demo</title>
+  <link rel="stylesheet" href="assets/css/engine.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+</head>
+<body>
+  <div class="demo-app">
+    <header class="demo-topbar">
+      <span class="brand" aria-hidden="true">aws</span>
+      <p class="topbar-title">Amazon WorkSpaces: From Zero to Agentic &mdash; re:Invent 2026 Interactive Demo</p>
+      <div class="topbar-actions">
+        <button type="button" id="btn-menu" class="chrome-btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">Chapters</button>
+        <button type="button" id="btn-presenter" class="chrome-btn" aria-pressed="false">Presenter notes</button>
+      </div>
+    </header>
+
+    <div class="demo-main">
+      <main class="demo-stage" id="stage" aria-label="Demo stage">
+        <div class="stage-canvas" id="stage-canvas">
+          <div class="canvas-screen" id="canvas-screen" tabindex="-1"></div>
+          <div class="canvas-overlay" id="canvas-overlay">
+            <div class="hotspot-ring" id="hotspot-ring" hidden></div>
+            <div class="step-callout" id="step-callout" role="group" aria-label="Step guidance" tabindex="-1" hidden></div>
+          </div>
+        </div>
+      </main>
+      <aside class="presenter-panel" id="presenter-panel" hidden aria-label="Presenter notes">
+        <h2>Presenter notes</h2>
+        <div id="presenter-body"></div>
+      </aside>
+    </div>
+
+    <footer class="demo-footer">
+      <button type="button" id="btn-back" class="chrome-btn nav-btn">&larr; Back</button>
+      <button type="button" id="btn-next" class="chrome-btn nav-btn nav-next">Next &rarr;</button>
+      <span class="position-text" id="position-text"></span>
+      <div class="progress-track" id="progress-track" role="progressbar" aria-label="Demo progress"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <span class="progress-pct" id="progress-pct"></span>
+    </footer>
+  </div>
+
+  <div class="menu-overlay" id="menu-overlay" hidden>
+    <nav class="menu-panel" id="menu-panel" aria-label="Demo contents"></nav>
+  </div>
+
+  <p class="visually-hidden" aria-live="polite" id="live-region"></p>
+
+  <noscript>
+    <div class="noscript-box">
+      <p>This interactive demo requires JavaScript. Open <strong>riv26demo/demo/index.html</strong>
+      in a modern browser with JavaScript enabled &mdash; no network connection is needed.</p>
+    </div>
+  </noscript>
+
+  <!-- ======================= Special views ======================= -->
+
+  <template id="view-start">
+    <div class="special-view">
+      <p class="view-kicker">re:Invent 2026 &middot; Interactive Demo</p>
+      <h1>Amazon WorkSpaces: From Zero to Agentic</h1>
+      <p class="special-lead">Start with the story, not the feature. Nine chapters take you from
+        &ldquo;what is a virtual desktop?&rdquo; to AI agents with their own cloud desktops &mdash;
+        no prior EUC or VDI experience required.</p>
+      <div class="act-cards">
+        <div class="act-card">
+          <h2>Act 1 &mdash; The Problem &amp; The Promise</h2>
+          <p class="act-theme">&ldquo;I understand what this is and why it exists&rdquo;</p>
+          <ol>
+            <li>Why Virtual Desktops?</li>
+            <li>The Amazon WorkSpaces Portfolio</li>
+            <li>Deploying Your First WorkSpace</li>
+            <li>The End-User Experience</li>
+          </ol>
+        </div>
+        <div class="act-card">
+          <h2>Act 2 &mdash; Day-2 Operations</h2>
+          <p class="act-theme">&ldquo;I can run this in production&rdquo;</p>
+          <ol start="5">
+            <li>Cost Optimization</li>
+            <li>Security &amp; Compliance</li>
+          </ol>
+        </div>
+        <div class="act-card">
+          <h2>Act 3 &mdash; What's New: re:Invent 2026</h2>
+          <p class="act-theme">&ldquo;This is where it's going &mdash; and it's exciting&rdquo;</p>
+          <ol start="7">
+            <li>Enhanced CloudWatch Metrics</li>
+            <li>Nested Virtualization</li>
+            <li>WorkSpaces for Agents</li>
+          </ol>
+        </div>
+      </div>
+      <div class="view-actions">
+        <button type="button" class="btn-hero" data-goto="#ch1-title">Start the demo</button>
+        <button type="button" class="btn-ghost" data-goto="#ch7-title">Skip to What's New</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="view-branch-act1">
+    <div class="special-view">
+      <p class="view-kicker">End of Act 1</p>
+      <h1>You know the basics.</h1>
+      <p class="special-lead">You've seen what Amazon WorkSpaces is, who each service is for, how a
+        WorkSpace gets deployed, and what the experience feels like for your users. Where to next?</p>
+      <div class="choice-cards">
+        <button type="button" class="choice-card" data-goto="#ch5-title">
+          <span class="choice-kicker">Act 2 &mdash; Day-2 Operations</span>
+          <h2>Continue the full story</h2>
+          <p>Cost optimization and security &amp; compliance &mdash; what it takes to run WorkSpaces
+            in production with confidence.</p>
+        </button>
+        <button type="button" class="choice-card" data-goto="#ch7-title">
+          <span class="choice-kicker">Act 3 &mdash; What's New</span>
+          <h2>Skip to What's New</h2>
+          <p>Jump straight to the re:Invent 2026 launches: enhanced CloudWatch metrics, nested
+            virtualization, and WorkSpaces for Agents.</p>
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <template id="view-wrapup">
+    <div class="special-view">
+      <p class="view-kicker">Wrap-up</p>
+      <h1>From zero to agentic &mdash; that's Amazon WorkSpaces in 2026.</h1>
+      <p class="special-lead">You've seen the problem virtual desktops solve, what it takes to run a
+        fleet in production, and the three re:Invent 2026 launches that change what a cloud desktop
+        can be.</p>
+      <div class="act-cards">
+        <div class="act-card">
+          <h2>Enhanced CloudWatch Metrics</h2>
+          <p>Granular network, compute, storage, and session-health visibility per WorkSpace &mdash;
+            troubleshoot &ldquo;it's slow&rdquo; with data, not guesswork.</p>
+        </div>
+        <div class="act-card">
+          <h2>Nested Virtualization</h2>
+          <p>Docker Desktop, WSL2, Hyper-V, and Android emulators inside a WorkSpace &mdash; the
+            developer persona, unlocked.</p>
+        </div>
+        <div class="act-card">
+          <h2>WorkSpaces for Agents</h2>
+          <p>AI agents with their own cloud desktops, automating the GUI-only applications that
+            have no API.</p>
+        </div>
+      </div>
+      <p class="wrap-links">Go deeper at re:Invent: workshop <strong>MAM332 &mdash; Build an AI agent
+        that completes desktop tasks with WorkSpaces</strong>.<br>
+        Explore on your own: <a href="https://aws.amazon.com/workspaces/ai-agents/" target="_blank"
+        rel="noreferrer noopener">aws.amazon.com/workspaces/ai-agents</a></p>
+      <div class="view-actions">
+        <button type="button" class="btn-hero" data-goto="#start">Restart the demo</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ======================= Scripts ======================= -->
+  <script src="assets/js/engine.js"></script>
+  <script src="assets/js/chapters/ch1.js"></script>
+  <script src="assets/js/chapters/ch2.js"></script>
+  <script src="assets/js/chapters/ch3.js"></script>
+  <script src="assets/js/chapters/ch4.js"></script>
+  <script src="assets/js/chapters/ch5.js"></script>
+  <script src="assets/js/chapters/ch6.js"></script>
+  <script src="assets/js/chapters/ch7.js"></script>
+  <script src="assets/js/chapters/ch8.js"></script>
+  <script src="assets/js/chapters/ch9.js"></script>
+  <script>window.DEMO && window.DEMO.start();</script>
+</body>
+</html>
