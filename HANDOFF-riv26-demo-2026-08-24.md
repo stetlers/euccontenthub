@@ -8,8 +8,10 @@ to the staging site's top nav, next to the Proposals button.
 ## Status at a glance
 
 - **The feature is DONE, deployed to staging, and verified live in a browser.**
-- **NOTHING IS COMMITTED.** All changes are working-tree only. HEAD is still
-  `78469a0`. See [Open / next items](#open--next-items).
+- **Committed and pushed** as `961c56a` on `main` (origin
+  `github.com/stetlers/euccontenthub`). Was working-tree only at the time this
+  doc was first written; that is resolved. See
+  [Open / next items](#open--next-items).
 - **Production is untouched.** `frontend/index.html` (prod) has no reference to
   the demo; only `index-staging.html` does.
 - Live at: https://staging.awseuccontent.com — click **🎬 Demo** in the top bar.
@@ -187,36 +189,30 @@ python deploy_frontend.py staging
 
 ## Open / next items
 
-1. **Commit the work — nothing is committed.** HEAD is `78469a0`. Suggested:
-   stage only this feature's files, since the tree has unrelated pre-existing
-   modifications that were deliberately left alone (see
-   `HANDOFF-staging-ui-2026-07-30.md` lines 127-129):
-
-   ```bash
-   cd /c/EUCContentHub
-   git add frontend/riv26-demo.js frontend/riv26demo/ \
-           frontend/index-staging.html frontend/styles-console.css \
-           deploy_frontend.py .kiro/steering/feature-registry.md \
-           HANDOFF-riv26-demo-2026-08-24.md
-   git commit -m "Add re:Invent 2026 interactive demo to staging toolbar"
-   ```
-
-   Beware: `frontend/index-staging.html` also carries unrelated chat-widget
-   cache-buster bumps, which this commit would sweep in. Also note commit
-   `66fe89f` may still be local-only and unpushed per the earlier handoff.
+1. ~~Commit the work.~~ **DONE (2026-08-24).** Committed as `961c56a` and pushed
+   to `origin/main`. Only this feature's files were staged; the tree's unrelated
+   pre-existing modifications were left alone (see
+   `HANDOFF-staging-ui-2026-07-30.md` lines 127-129). The commit did sweep in the
+   two unrelated chat-widget cache-buster bumps in `index-staging.html`
+   (`chat-widget.js`/`.css` → `v=20260807-neura2`), which were already live on
+   staging. The earlier handoff's `66fe89f` concern is moot — this was the only
+   unpushed commit on `main`.
 
 2. **Relaunch Claude Code / your terminal from a clean shell** to drop the stale
-   inherited `AWS_*` env vars, so `ada` refreshes actually take effect.
+   inherited `AWS_*` env vars, so `ada` refreshes actually take effect. **Still
+   open** — all three vars were still present as of 2026-08-24, so the `unset`
+   workaround remains necessary.
 
-3. **Decide whether this ships to production.** Currently staging-only. To
-   promote, the button + script tag must be added to `frontend/index.html` and
-   the styles to `styles-refined.css` (prod theme), then
-   `python deploy_frontend.py production`. **Not done, not requested.**
+3. **Production: decided to stay staging-only (2026-08-24).** Not promoted. If
+   that changes, the button + script tag must be added to `frontend/index.html`
+   and the styles to `styles-refined.css` (prod theme), then
+   `python deploy_frontend.py production`.
 
-4. **Source-of-truth question.** `frontend/riv26demo/` is a *vendored copy* of
-   `D:\Users\stetlers\Kirov2\riv26demo\demo\`. There is no sync mechanism — edits
-   to either diverge silently. Decide whether this repo now owns the demo, or add
-   a refresh step.
+4. **Source of truth: `frontend/riv26demo/` is canonical (decided 2026-08-24).**
+   Edit the bundle in this repo. `D:\Users\stetlers\Kirov2\riv26demo\demo\` was
+   the origin but is no longer the source — do not re-copy from it. The two were
+   verified byte-identical (`diff -rq`, clean) at the time of the decision, so
+   nothing was lost. Recorded in `feature-registry.md` entry #24.
 
 5. Optional polish: the demo captures arrow keys inside the iframe, so parent
    Escape only fires when focus is outside it. A same-origin `keydown` listener is

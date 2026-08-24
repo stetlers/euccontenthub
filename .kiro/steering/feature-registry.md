@@ -137,6 +137,7 @@ This file documents every active feature in the Amazon WorkSpaces Community Hub,
 - **Verify**: "🎬 Demo" button sits to the right of Propose Article / Proposals ▾ in the top bar and is visible signed out; click opens a full-screen overlay whose iframe loads `riv26demo/index.html`; demo title and Act 1–3 cards render; Restart reloads the demo; Close and Escape dismiss it and restore page scroll
 - **Dependencies**: None — no auth, no API, no CDN. The bundle is fully self-contained and loads lazily on first open. It runs in an iframe so its `engine.css`/`theme.css` cannot collide with `styles-console.css`.
 - **Note**: Staging only; `index.html` (production) does not reference it. `deploy_frontend.py` uploads directory bundles via `FRONTEND_DIRS`, preserving relative asset paths — a new nested bundle will not deploy unless it's listed there.
+- **Source of truth**: `frontend/riv26demo/` is canonical — edit the bundle here. It originated as a copy of `D:\Users\stetlers\Kirov2\riv26demo\demo\`, but that copy is no longer the source and there is no sync mechanism; do not re-copy from it. The narrative it was authored from is `D:\Users\stetlers\Kirov2\riv26demo\WorkSpaces re_Invent Demo Plan.md`.
 
 ### 21. Legal Modals (Privacy, Terms, Data Deletion)
 - **Files**: `app.js` (`setupPrivacyModal`, `setupTermsModal`, `setupDataDeletionModal`), `index.html`
